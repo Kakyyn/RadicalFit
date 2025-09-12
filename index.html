@@ -1,0 +1,2063 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FitGym - Member Management</title>
+    <link rel="manifest" href="manifest.json">
+    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.1/build/qrcode.min.js"></script>
+    <script src="https://unpkg.com/html5-qrcode@2.3.7/minified/html5-qrcode.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #121212;
+            color: #ffffff;
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        .app-container {
+            display: flex;
+            min-height: 100vh;
+        }
+        .highlight-attendance {
+            /* Remove border from tr, apply to tds below */
+            border: none !important;
+            overflow: visible;
+        }
+        .highlight-attendance td {
+            border-left: none !important;
+            border-right: none !important;
+            background: rgba(15, 255, 7, 0.07);
+        }
+        .highlight-attendance td:first-child {
+            border-top-left-radius: 999px;
+            border-bottom-left-radius: 999px;
+        }
+        .highlight-attendance td:last-child {
+            border-top-right-radius: 999px;
+            border-bottom-right-radius: 999px;
+        }
+        .attendance-dots {
+            display: flex;
+            gap: 50px;
+            justify-content: center;
+            align-items: center;
+        }
+        .attendance-dot {
+            width: 200px;
+            height: 200px;
+            margin: 0 2px;
+            box-shadow: 0 2px 8px #0002;
+            border-radius: 50%;
+            background: #444;
+            border: 1.5px solid #888;
+            display: inline-block;
+            transition: background 0.2s, border 0.2s;
+        }
+        .attendance-dot.filled {
+            background: #28ff07;
+            border-color: #17ff07;
+            box-shadow: 0 0 4px #77ff0799;
+        }
+        .attendance-dots {
+            display: flex;
+            gap: 6px;
+            justify-content: center;
+            align-items: center;
+            margin: 0 auto;
+        }
+        td .attendance-dots {
+            justify-content: center;
+        }
+        th:nth-child(5), td:nth-child(5) {
+            text-align: center;
+        }
+        .attendance-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #444;
+            border: 1px solid #888;
+            display: inline-block;
+        }
+        .attendance-dot.filled {
+            background: #5aff07;
+            border-color: #39ff07;
+        }
+
+        .attendance-icons {
+            display: flex;
+            gap: 32px;
+            justify-content: center;
+            align-items: center;
+            margin: 0 auto;
+        }
+        .attendance-icon {
+            font-size: 56px;
+            opacity: 0.25;
+            transition: opacity 0.2s, color 0.2s;
+            filter: grayscale(1);
+        }
+        .attendance-icon.filled {
+            opacity: 1;
+            color: #28ff07;
+            filter: none;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: 280px;
+            background: #1a1a1a;
+            padding: 24px;
+            border-right: 1px solid #333;
+            transition: transform 0.3s ease;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 32px;
+            padding: 16px 0;
+        }
+
+        .logo-icon {
+            width: 40px;
+            height: 40px;
+            background: #6366f1;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 20px;
+        }
+
+        .logo-text {
+            font-size: 24px;
+            font-weight: 700;
+            color: #ffffff;
+        }
+
+        .nav-menu {
+            list-style: none;
+        }
+
+        .nav-item {
+            margin-bottom: 8px;
+        }
+
+        .nav-link {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 16px;
+            background: none;
+            border: none;
+            color: #9ca3af;
+            text-decoration: none;
+            border-radius: 12px;
+            transition: all 0.2s ease;
+            cursor: pointer;
+            width: 100%;
+            text-align: left;
+            font-size: 16px;
+        }
+
+        .nav-link:hover,
+        .nav-link.active {
+            background: #2a2a2a;
+            color: #ffffff;
+        }
+
+        .nav-icon {
+            width: 20px;
+            height: 20px;
+        }
+
+        /* Main Content */
+        .main-content {
+            flex: 1;
+            padding: 24px;
+            overflow-y: auto;
+        }
+
+        .header {
+            display: flex;
+            justify-content: between;
+            align-items: center;
+            margin-bottom: 32px;
+        }
+
+        .page-title {
+            font-size: 32px;
+            font-weight: 700;
+            color: #ffffff;
+        }
+
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            background: #1a1a1a;
+            padding: 12px 20px;
+            border-radius: 12px;
+            margin-left: auto;
+        }
+
+        /* Cards */
+        .card {
+            background: #1a1a1a;
+            border-radius: 16px;
+            padding: 24px;
+            margin-bottom: 24px;
+            border: 1px solid #333;
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .card-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #ffffff;
+        }
+
+        .card-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 24px;
+            margin-bottom: 32px;
+        }
+
+        .stat-card {
+            background: #1a1a1a;
+            border-radius: 16px;
+            padding: 24px;
+            border: 1px solid #333;
+        }
+
+        .stat-icon {
+            width: 48px;
+            height: 48px;
+            background: #6366f1;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 16px;
+            font-size: 24px;
+        }
+
+        .stat-title {
+            font-size: 14px;
+            color: #9ca3af;
+            margin-bottom: 8px;
+        }
+
+        .stat-value {
+            font-size: 32px;
+            font-weight: 700;
+            color: #ffffff;
+        }
+
+        /* Forms */
+        .form-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
+            margin-bottom: 24px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-label {
+            display: block;
+            font-size: 14px;
+            font-weight: 500;
+            color: #ffffff;
+            margin-bottom: 8px;
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 12px 16px;
+            background: #2a2a2a;
+            border: 1px solid #404040;
+            border-radius: 8px;
+            color: #ffffff;
+            font-size: 16px;
+            transition: border-color 0.2s ease;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: #6366f1;
+        }
+
+        /* Buttons */
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-primary {
+            background: #6366f1;
+            color: #ffffff;
+        }
+
+        .btn-primary:hover {
+            background: #5855eb;
+        }
+
+        .btn-secondary {
+            background: #374151;
+            color: #ffffff;
+        }
+
+        .btn-secondary:hover {
+            background: #4b5563;
+        }
+
+        .btn-danger {
+            background: #ef4444;
+            color: #ffffff;
+        }
+
+        .btn-danger:hover {
+            background: #dc2626;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 12px;
+            margin-top: 24px;
+        }
+
+        /* Modal */
+        .modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .modal.show {
+            display: flex;
+        }
+
+        .modal-content {
+            background: #1a1a1a;
+            border-radius: 16px;
+            padding: 32px;
+            max-width: 600px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+            border: 1px solid #333;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+        }
+
+        .modal-title {
+            font-size: 24px;
+            font-weight: 700;
+        }
+
+        .close-btn {
+            background: none;
+            border: none;
+            color: #9ca3af;
+            font-size: 24px;
+            cursor: pointer;
+            padding: 8px;
+            border-radius: 6px;
+            transition: background-color 0.2s ease;
+        }
+
+        .close-btn:hover {
+            background: #2a2a2a;
+        }
+
+        /* Table */
+        .table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+
+        .table th,
+        .table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #333;
+        }
+
+        .table th {
+            color: #9ca3af;
+            font-weight: 600;
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .table td {
+            color: #ffffff;
+        }
+
+        .table-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .btn-sm {
+            padding: 6px 12px;
+            font-size: 14px;
+        }
+
+        /* QR Code */
+        .qr-container {
+            text-align: center;
+            margin: 24px 0;
+        }
+
+        .qr-container canvas {
+            border-radius: 12px;
+            border: 1px solid #333;
+        }
+
+        /* Landing Page Styles */
+        .landing-container {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, #121212 0%, #1a1a1a 100%);
+        }
+
+        .landing-content {
+            text-align: center;
+            max-width: 500px;
+            padding: 40px;
+            background: #1a1a1a;
+            border-radius: 24px;
+            border: 1px solid #333;
+        }
+
+        .landing-logo {
+            width: 80px;
+            height: 80px;
+            background: #6366f1;
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 24px;
+            font-size: 32px;
+            font-weight: bold;
+        }
+
+        .landing-title {
+            font-size: 36px;
+            font-weight: 700;
+            margin-bottom: 16px;
+            color: #ffffff;
+        }
+
+        .landing-subtitle {
+            font-size: 18px;
+            color: #9ca3af;
+            margin-bottom: 32px;
+        }
+
+        .landing-tabs {
+            display: flex;
+            background: #2a2a2a;
+            border-radius: 12px;
+            margin-bottom: 32px;
+            overflow: hidden;
+        }
+
+        .landing-tab {
+            flex: 1;
+            padding: 16px 24px;
+            background: none;
+            border: none;
+            color: #9ca3af;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-size: 16px;
+            font-weight: 500;
+        }
+
+        .landing-tab.active {
+            background: #6366f1;
+            color: #ffffff;
+        }
+
+        .landing-tab-content {
+            display: none;
+        }
+
+        .landing-tab-content.active {
+            display: block;
+        }
+
+        .gym-info {
+            text-align: left;
+        }
+
+        .gym-info h3 {
+            font-size: 20px;
+            margin-bottom: 16px;
+            color: #ffffff;
+        }
+
+        .gym-info p {
+            color: #9ca3af;
+            margin-bottom: 16px;
+        }
+
+        .plans-list {
+            list-style: none;
+            margin-top: 20px;
+        }
+
+        .plans-list li {
+            padding: 12px 0;
+            border-bottom: 1px solid #333;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .plan-name {
+            color: #ffffff;
+            font-weight: 500;
+        }
+
+        .plan-price {
+            color: #6366f1;
+            font-weight: 700;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .sidebar {
+                transform: translateX(-100%);
+                position: fixed;
+                height: 100vh;
+                z-index: 100;
+            }
+
+            .sidebar.show {
+                transform: translateX(0);
+            }
+
+            .main-content {
+                padding: 16px;
+            }
+
+            .card-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .form-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .landing-content {
+                margin: 20px;
+                padding: 24px;
+            }
+
+            .landing-title {
+                font-size: 28px;
+            }
+
+            .landing-tabs {
+                flex-direction: column;
+            }
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .error-message {
+            color: #ef4444;
+            font-size: 14px;
+            margin-top: 8px;
+        }
+
+        .success-message {
+            color: #10b981;
+            font-size: 14px;
+            margin-top: 8px;
+        }
+
+        /* Member Images */
+        .member-images {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin-top: 20px;
+        }
+
+        .image-card {
+            text-align: center;
+        }
+
+        .image-card img {
+            width: 100%;
+            max-width: 320px;
+            height: 220px;
+            object-fit: contain;
+            border-radius: 12px;
+            border: 1px solid #333;
+            background: #181818;
+            display: block;
+            margin: 0 auto;
+        }
+
+        .image-placeholder {
+            width: 100%;
+            max-width: 320px;
+            height: 220px;
+            background: #2a2a2a;
+            border: 2px dashed #404040;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #9ca3af;
+            font-size: 14px;
+            margin: 0 auto;
+        }
+
+        .progress-card {
+            background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+            color: white;
+        }
+
+        .member-dashboard-tabs {
+            display: flex;
+            background: #2a2a2a;
+            border-radius: 12px;
+            margin-bottom: 24px;
+            overflow: hidden;
+        }
+
+        .member-dashboard-tab {
+            flex: 1;
+            padding: 16px 20px;
+            background: none;
+            border: none;
+            color: #9ca3af;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .member-dashboard-tab.active {
+            background: #6366f1;
+            color: #ffffff;
+        }
+
+        .measurement-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-top: 20px;
+        }
+
+        .measurement-item {
+            background: #2a2a2a;
+            padding: 16px;
+            border-radius: 12px;
+            text-align: center;
+        }
+
+        .measurement-label {
+            font-size: 14px;
+            color: #9ca3af;
+            margin-bottom: 8px;
+        }
+
+        .measurement-value {
+            font-size: 20px;
+            font-weight: 700;
+            color: #ffffff;
+        }
+        .landing-tab-content { display: none; }
+.landing-tab-content.active { display: block; }
+    </style>
+</head>
+<body>
+    <!-- Landing Page -->
+    <div id="landingPage" class="landing-container">
+        <div class="landing-content">
+            <div class="landing-logo">F</div>
+            <h1 class="landing-title">Radical Fit</h1>
+            <p class="landing-subtitle">Transforma tu cuerpo.</p>
+            
+            <div class="landing-tabs">
+                <button class="landing-tab active" data-tab="info">Información</button>
+                <button class="landing-tab" data-tab="contact">Código QR</button>
+                <button class="landing-tab" data-tab="login">Iniciar Sesión</button>
+
+            </div>
+            <div id="gymInfo" class="landing-tab-content gym-info active">
+                <h3>Acerca de Nuestro Gimnasio</h3>
+                <p>¡Bienvenido a Radical Fit! Ofrecemos equipos de última generación y programas de entrenamiento personalizados para ayudarte a alcanzar tus objetivos de fitness.</p>
+                
+                <ul class="plans-list">
+                    <li class="plan-item" data-plan="nitro">
+                        <span class="plan-name">Nitro</span>
+                    </li>
+                    <li class="plan-item" data-plan="zero">
+                        <span class="plan-name">Zero</span>
+                    </li>
+                    <li class="plan-item" data-plan="tnt">
+                        <span class="plan-name">TNT</span>
+                    </li>
+                    <li class="plan-item" data-plan="gainer">
+                        <span class="plan-name">Gainer</span>
+                    </li>
+                </ul>
+                <!-- Plan Info Modal -->
+                <div id="planInfoModal" class="modal">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h2 class="modal-title" id="planModalTitle">Información del Plan</h2>
+                            <button class="close-btn" id="closePlanModal">&times;</button>
+                        </div>
+                        <div id="planModalBody"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="contactTab" class="landing-tab-content">
+                <h3>Código QR</h3>
+                <div id="contactTabQRSection" style="margin-top:32px;">
+                    <div id="contactTabQRCode"></div>
+                    <div id="contactTabQRPrompt" style="margin-top:16px;"></div>
+                </div>
+            </div>
+            
+            <div id="loginTab" class="landing-tab-content">
+                <form id="loginForm">
+                    <div class="form-group">
+                        <label class="form-label">Correo Electrónico</label>
+                        <input type="email" class="form-input" id="loginEmail" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Contraseña</label>
+                        <input type="password" class="form-input" id="loginPassword" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary" style="width: 100%;">Iniciar Sesión</button>
+                    <div id="loginError" class="error-message"></div>
+                </form>
+            </div>
+            
+            <div class="btn-group">
+                <button id="registerBtn" class="btn btn-primary">Registrar Nuevo Miembro</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main App -->
+    <div id="mainApp" class="app-container hidden">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="logo">
+                <div class="logo-icon">F</div>
+                <span class="logo-text">Radical Fit</span>
+            </div>
+            <nav>
+                <ul class="nav-menu" id="navMenu">
+                    <!-- Navigation items will be populated by JavaScript -->
+                </ul>
+            </nav>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="header">
+                <h1 class="page-title" id="pageTitle">Tablero</h1>
+                <div class="user-info">
+                    <span id="userEmail"></span>
+                    <button id="signOutBtn" class="btn btn-secondary btn-sm">Cerrar Sesión</button>
+                </div>
+            </header>
+
+            <!-- Member Dashboard -->
+            <div id="memberDashboard" class="hidden">
+                <div id="weighinReminder" style="display:none; margin-bottom: 18px;"></div>
+                <div class="card-grid">
+                    <div class="stat-card">
+                        <div class="stat-icon">👤</div>
+                        <div class="stat-title">ID de Miembro</div>
+                        <div class="stat-value" id="memberId"></div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">📅</div>
+                        <div class="stat-title">Mediciones</div>
+                        <div class="stat-value" id="memberMeasurementMessage"></div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">🎯</div>
+                        <div class="stat-title">Asistencia</div>
+                        <div class="stat-value" id="attendanceCount">0</div>
+                    </div>
+                </div>
+
+                <div class="member-dashboard-tabs">
+                    <!-- Las pestañas ahora se controlan desde la barra lateral -->
+                </div>
+
+                <div id="qrTab" class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">Tu Código QR</h3>
+                    </div>
+                    <div class="qr-container" id="memberQRCode"></div>
+                    <div id="weighinReminder" style="display:none; margin: 18px 0 0 0;"></div>
+                    <p style="text-align: center; color: #9ca3af;">Muestra este código QR para la asistencia</p>
+                </div>
+
+                <div id="profileTab" class="card hidden">
+                    <div class="card-header">
+                        <h3 class="card-title">Información Personal</h3>
+                    </div>
+                    <div id="memberProfile"></div>
+                    <div class="member-images" id="memberImages">
+                        <div class="image-card">
+                            <h4>Antes</h4>
+                            <div id="beforeImage"></div>
+                        </div>
+                        <div class="image-card">
+                            <h4>Después</h4>
+                            <div id="afterImage"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="measurementsTab" class="card hidden">
+                    <div class="card-header">
+                        <h3 class="card-title">Mediciones Corporales</h3>
+                    </div>
+                    <div id="memberMeasurements"></div>
+                </div>
+
+                <div id="progressTab" class="card hidden">
+                    <div class="card-header">
+                        <h3 class="card-title">Seguimiento de Progreso</h3>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-title">Peso Actual</div>
+                        <div class="stat-value" id="currentWeight">N/A</div>
+                    </div>
+                    <div id="weightHistory"></div>
+                </div>
+            </div>
+
+            <!-- Admin Dashboard -->
+            <div id="adminDashboard" class="hidden">
+                <div class="card-grid">
+                    <div class="stat-card">
+                        <div class="stat-icon">👥</div>
+                        <div class="stat-title">Total de Miembros</div>
+                        <div class="stat-value" id="totalMembers">0</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">✅</div>
+                        <div class="stat-title">Asistencias de Hoy</div>
+                        <div class="stat-value" id="todayCheckins">0</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">📊</div>
+                        <div class="stat-title">Este Mes</div>
+                        <div class="stat-value" id="monthlyCheckins">0</div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">Gestión de Miembros</h3>
+                        <div class="btn-group">
+                            <button id="scanQRBtn" class="btn btn-secondary">Escanear Código QR</button>
+                            <button id="addMemberBtn" class="btn btn-primary">Agregar Miembro</button>
+                        </div>
+                    </div>
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Nombre</th>
+                                <th>Correo Electrónico</th>
+                                <th>Teléfono</th>
+                                <th style="text-align:center;">Asistencia</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="membersTableBody">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Registration Modal -->
+    <div id="registerModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title">Registrar Nuevo Miembro</h2>
+                <button class="close-btn" id="closeRegisterModal">&times;</button>
+            </div>
+            <form id="registerForm">
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label class="form-label">Nombre Completo</label>
+                        <input type="text" class="form-input" id="regName" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Teléfono</label>
+                        <input type="tel" class="form-input" id="regPhone" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Correo Electrónico</label>
+                        <input type="email" class="form-input" id="regEmail" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Contraseña</label>
+                        <input type="password" class="form-input" id="regPassword" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Fecha de Nacimiento</label>
+                        <input type="date" class="form-input" id="regDob" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Peso (kg)</label>
+                        <input type="number" class="form-input" id="regWeight" step="0.1" required>
+                    </div>
+                </div>
+
+                <h4 style="margin: 24px 0 16px 0; color: #ffffff;">Medidas Corporales (cm)</h4>
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label class="form-label">Abdomen</label>
+                        <input type="number" class="form-input" id="regAbdomen" step="0.1" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Cintura</label>
+                        <input type="number" class="form-input" id="regCintura" step="0.1" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Cadera</label>
+                        <input type="number" class="form-input" id="regCadera" step="0.1" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Pierna</label>
+                        <input type="number" class="form-input" id="regPierna" step="0.1" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Brazo</label>
+                        <input type="number" class="form-input" id="regBrazo" step="0.1" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Espalda</label>
+                        <input type="number" class="form-input" id="regEspalda" step="0.1" required>
+                    </div>
+                </div>
+
+                <h4 style="margin: 24px 0 16px 0; color: #ffffff;">Medidas de Ropa</h4>
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label class="form-label">Pantalón</label>
+                        <input type="text" class="form-input" id="regPantalon" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Camisa</label>
+                        <input type="text" class="form-input" id="regCamisa" required>
+                    </div>
+                </div>
+                
+                <div class="btn-group">
+                    <button type="button" class="btn btn-secondary" id="cancelRegister">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Registrar Miembro</button>
+                </div>
+                <div id="registerError" class="error-message"></div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Edit Member Modal -->
+    <div id="editModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title">Editar Miembro</h2>
+                <button class="close-btn" id="closeEditModal">&times;</button>
+            </div>
+            <form id="editForm">
+                <input type="hidden" id="editMemberId">
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label class="form-label">Nombre Completo</label>
+                        <input type="text" class="form-input" id="editName" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Teléfono</label>
+                        <input type="tel" class="form-input" id="editPhone" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Correo Electrónico</label>
+                        <input type="email" class="form-input" id="editEmail" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Nueva Contraseña (dejar en blanco para mantener la actual)</label>
+                        <input type="password" class="form-input" id="editPassword">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Fecha de Nacimiento</label>
+                        <input type="date" class="form-input" id="editDob" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Peso (kg)</label>
+                        <input type="number" class="form-input" id="editWeight" step="0.1" required>
+                    </div>
+                </div>
+
+                <h4 style="margin: 24px 0 16px 0; color: #ffffff;">Medidas Corporales (cm)</h4>
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label class="form-label">Abdomen</label>
+                        <input type="number" class="form-input" id="editAbdomen" step="0.1">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Cintura</label>
+                        <input type="number" class="form-input" id="editCintura" step="0.1">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Cadera</label>
+                        <input type="number" class="form-input" id="editCadera" step="0.1">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Pierna</label>
+                        <input type="number" class="form-input" id="editPierna" step="0.1">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Brazo</label>
+                        <input type="number" class="form-input" id="editBrazo" step="0.1">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Espalda</label>
+                        <input type="number" class="form-input" id="editEspalda" step="0.1">
+                    </div>
+                </div>
+
+                <h4 style="margin: 24px 0 16px 0; color: #ffffff;">Medidas de Ropa</h4>
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label class="form-label">Pantalón</label>
+                        <input type="text" class="form-input" id="editPantalon">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Camisa</label>
+                        <input type="text" class="form-input" id="editCamisa">
+                    </div>
+                </div>
+
+                <h4 style="margin: 24px 0 16px 0; color: #ffffff;">Imágenes</h4>
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label class="form-label">Imagen Antes</label>
+                        <input type="file" class="form-input" id="editBeforeImg" accept="image/*">
+                        <img id="editBeforePreview" src="" alt="Vista previa antes" style="max-width:100px;display:none;margin-top:8px;" />
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Imagen Después</label>
+                        <input type="file" class="form-input" id="editAfterImg" accept="image/*">
+                        <img id="editAfterPreview" src="" alt="Vista previa después" style="max-width:100px;display:none;margin-top:8px;" />
+                    </div>
+                </div>
+                
+                <div class="btn-group">
+                    <button type="button" class="btn btn-danger" id="deleteMember">Eliminar Miembro</button>
+                    <button type="button" class="btn btn-secondary" id="cancelEdit">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Guardar Cambios</button>
+                </div>
+                <div id="editError" class="error-message"></div>
+                <div id="editSuccess" class="success-message"></div>
+            </form>
+        </div>
+    </div>
+
+    <!-- QR Scanner Modal -->
+    <div id="scannerModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title">Escanear Código QR del Miembro</h2>
+                <button class="close-btn" id="closeScannerModal">&times;</button>
+            </div>
+            <div id="qr-reader" style="width: 100%; max-width: 400px; margin: 0 auto;"></div>
+            <div style="margin: 16px 0; text-align: center;">
+                <input id="manualIdInput" type="text" placeholder="Ingresar ID de miembro" style="padding:8px; border-radius:6px; border:1px solid #ccc; width: 220px;">
+                <button id="manualIdBtn" class="btn btn-primary btn-sm" style="margin-left:8px;">Agregar Asistencia</button>
+            </div>
+            <div id="scanResult" class="success-message" style="text-align: center; margin-top: 16px;"></div>
+        </div>
+    </div>
+
+    <!-- Measurement Modal -->
+    <div id="measurementModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title">Agregar Medición</h2>
+                <button class="close-btn" id="closeMeasurementModal">&times;</button>
+            </div>
+            <form id="measurementForm">
+                <input type="hidden" id="measurementMemberId">
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label class="form-label">Peso (kg)</label>
+                        <input type="number" class="form-input" id="measurementWeight" step="0.1" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Abdomen (cm)</label>
+                        <input type="number" class="form-input" id="measurementAbdomen" step="0.1">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Cintura (cm)</label>
+                        <input type="number" class="form-input" id="measurementCintura" step="0.1">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Cadera (cm)</label>
+                        <input type="number" class="form-input" id="measurementCadera" step="0.1">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Pierna (cm)</label>
+                        <input type="number" class="form-input" id="measurementPierna" step="0.1">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Brazo (cm)</label>
+                        <input type="number" class="form-input" id="measurementBrazo" step="0.1">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Espalda (cm)</label>
+                        <input type="number" class="form-input" id="measurementEspalda" step="0.1">
+                    </div>
+                </div>
+                <div class="btn-group">
+                    <button type="button" class="btn btn-secondary" id="cancelMeasurement">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Guardar Medición</button>
+                </div>
+                <div id="measurementError" class="error-message"></div>
+                <div id="measurementSuccess" class="success-message"></div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // PWA Service Worker Registration
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('service-worker.js');
+        }
+
+        // Global variables
+        let currentUser = null;
+        let members = JSON.parse(localStorage.getItem('gymMembers') || '[]');
+        let qrScanner = null;
+        
+        // Admin credentials
+        const ADMIN_EMAIL = 'admin@radicalfit.com';
+        const ADMIN_PASSWORD = 'admin';
+
+        // DOM elements
+        const landingPage = document.getElementById('landingPage');
+        const mainApp = document.getElementById('mainApp');
+        const loginForm = document.getElementById('loginForm');
+        const registerModal = document.getElementById('registerModal');
+        const registerForm = document.getElementById('registerForm');
+        const editModal = document.getElementById('editModal');
+        const editForm = document.getElementById('editForm');
+        const scannerModal = document.getElementById('scannerModal');
+
+        // Initialize app
+        document.addEventListener('DOMContentLoaded', function() {
+            // Manual ID attendance in QR modal
+            document.getElementById('manualIdBtn').addEventListener('click', function() {
+                const id = document.getElementById('manualIdInput').value.trim();
+                if (!id) {
+                    document.getElementById('scanResult').textContent = 'Por favor ingresa un ID.';
+                    return;
+                }
+                const member = members.find(m => m.id === id);
+                if (member) {
+                    if (!member.attendance) member.attendance = [];
+                    member.attendance.push(new Date().toISOString());
+                    localStorage.setItem('gymMembers', JSON.stringify(members));
+                    renderMembersTable();
+                    updateAdminStats();
+                    document.getElementById('scanResult').textContent = `✅ Asistencia agregada para ${member.name}`;
+                    document.getElementById('manualIdInput').value = '';
+                } else {
+                    document.getElementById('scanResult').textContent = '❌ Miembro no encontrado';
+                }
+            });
+            // Measurement modal logic
+            function openMeasurementModal(memberId) {
+                document.getElementById('measurementMemberId').value = memberId;
+                measurementForm.reset();
+                document.getElementById('measurementError').textContent = '';
+                document.getElementById('measurementSuccess').textContent = '';
+                measurementModal.classList.add('show');
+            }
+            window.openMeasurementModal = openMeasurementModal;
+
+            const measurementModal = document.getElementById('measurementModal');
+            const measurementForm = document.getElementById('measurementForm');
+            document.getElementById('closeMeasurementModal').addEventListener('click', () => {
+                measurementModal.classList.remove('show');
+            });
+            document.getElementById('cancelMeasurement').addEventListener('click', () => {
+                measurementModal.classList.remove('show');
+            });
+            measurementForm.addEventListener('submit', function(e) {
+                e.preventDefault();
+                const memberId = document.getElementById('measurementMemberId').value;
+                const member = members.find(m => m.id === memberId);
+                if (!member) {
+                    document.getElementById('measurementError').textContent = 'Miembro no encontrado.';
+                    return;
+                }
+                // Prepare new measurement entry
+                const entry = {
+                    date: new Date().toISOString(),
+                    weight: parseFloat(document.getElementById('measurementWeight').value),
+                    abdomen: parseFloat(document.getElementById('measurementAbdomen').value),
+                    cintura: parseFloat(document.getElementById('measurementCintura').value),
+                    cadera: parseFloat(document.getElementById('measurementCadera').value),
+                    pierna: parseFloat(document.getElementById('measurementPierna').value),
+                    brazo: parseFloat(document.getElementById('measurementBrazo').value),
+                    espalda: parseFloat(document.getElementById('measurementEspalda').value)
+                };
+                // Initialize history if not present
+                if (!member.measurementHistory) member.measurementHistory = [];
+                member.measurementHistory.push(entry);
+                // Reset attendance and highlight after new measurement
+                member.attendance = [];
+                // Do NOT update member.weight or member.measurements (keep registration values static)
+                localStorage.setItem('gymMembers', JSON.stringify(members));
+                document.getElementById('measurementSuccess').textContent = 'Medición guardada exitosamente.';
+                setTimeout(() => {
+                    measurementModal.classList.remove('show');
+                    // If the member is viewing their dashboard, refresh it
+                    if (currentUser && !currentUser.isAdmin && currentUser.memberId === memberId) {
+                        renderMemberData(member);
+            // Show weigh-in reminder if 4 or more attendances (in QR tab)
+            const reminder = document.getElementById('weighinReminder');
+            if (member.attendance && member.attendance.length >= 4) {
+                reminder.textContent = '¡Es momento de registrar tu peso y mediciones! Por favor, acude con el administrador.';
+                reminder.style.display = 'block';
+                reminder.style.padding = '16px';
+                reminder.style.background = '#fff3cd';
+                reminder.style.color = '#856404';
+                reminder.style.borderRadius = '16px';
+                reminder.style.textAlign = 'center';
+                reminder.style.fontWeight = 'bold';
+                reminder.style.fontSize = '1.1em';
+            } else {
+                reminder.style.display = 'none';
+            }
+                    }
+                    // If admin, refresh table
+                    if (currentUser && currentUser.isAdmin) {
+                        renderMembersTable();
+                    }
+                }, 1000);
+            });
+            // Image preview for edit modal
+            const beforeImgInput = document.getElementById('editBeforeImg');
+            const afterImgInput = document.getElementById('editAfterImg');
+            const beforePreview = document.getElementById('editBeforePreview');
+            const afterPreview = document.getElementById('editAfterPreview');
+
+            beforeImgInput.addEventListener('change', function() {
+                if (this.files && this.files[0]) {
+                    const reader = new FileReader();
+                    reader.onload = function(e) {
+                        beforePreview.src = e.target.result;
+                        beforePreview.style.display = 'block';
+                    };
+                    reader.readAsDataURL(this.files[0]);
+                }
+            });
+            afterImgInput.addEventListener('change', function() {
+                if (this.files && this.files[0]) {
+                    const reader = new FileReader();
+                    reader.onload = function(e) {
+                        afterPreview.src = e.target.result;
+                        afterPreview.style.display = 'block';
+                    };
+                    reader.readAsDataURL(this.files[0]);
+                }
+            });
+            // Check if user is already logged in
+            const savedUser = JSON.parse(localStorage.getItem('currentUser') || 'null');
+            if (savedUser) {
+                currentUser = savedUser;
+                showMainApp();
+            } else {
+                showLandingPage();
+            }
+
+            // Landing page tab switching
+            document.querySelectorAll('.landing-tab').forEach(tab => {
+                tab.addEventListener('click', () => {
+                    document.querySelectorAll('.landing-tab').forEach(t => t.classList.remove('active'));
+                    document.querySelectorAll('.landing-tab-content').forEach(c => c.classList.remove('active'));
+                    tab.classList.add('active');
+                    // Show the correct tab content based on data-tab
+                    if (tab.dataset.tab === 'info') document.getElementById('gymInfo').classList.add('active');
+                    else if (tab.dataset.tab === 'login') document.getElementById('loginTab').classList.add('active');
+                    else if (tab.dataset.tab === 'contact') document.getElementById('contactTab').classList.add('active');
+                });
+            });
+
+            // Modal event listeners
+            document.getElementById('registerBtn').addEventListener('click', () => {
+                registerModal.classList.add('show');
+            });
+
+            document.getElementById('closeRegisterModal').addEventListener('click', () => {
+                registerModal.classList.remove('show');
+            });
+
+            document.getElementById('cancelRegister').addEventListener('click', () => {
+                registerModal.classList.remove('show');
+            });
+
+            // Form submissions
+            loginForm.addEventListener('submit', handleLogin);
+            registerForm.addEventListener('submit', handleRegister);
+            editForm.addEventListener('submit', handleEditMember);
+
+            // Sign out
+            document.getElementById('signOutBtn').addEventListener('click', signOut);
+
+            // Admin functions
+            document.getElementById('addMemberBtn')?.addEventListener('click', () => {
+                registerModal.classList.add('show');
+            });
+
+            document.getElementById('scanQRBtn')?.addEventListener('click', openQRScanner);
+            document.getElementById('closeScannerModal')?.addEventListener('click', closeQRScanner);
+
+            // Edit modal
+            document.getElementById('closeEditModal').addEventListener('click', () => {
+                editModal.classList.remove('show');
+            });
+
+            document.getElementById('cancelEdit').addEventListener('click', () => {
+                editModal.classList.remove('show');
+            });
+
+            document.getElementById('deleteMember').addEventListener('click', deleteMember);
+
+            // Member dashboard tabs
+            document.querySelectorAll('.member-dashboard-tab').forEach(tab => {
+                tab.addEventListener('click', () => {
+                    document.querySelectorAll('.member-dashboard-tab').forEach(t => t.classList.remove('active'));
+                    document.querySelectorAll('#memberDashboard .card').forEach(c => c.classList.add('hidden'));
+                    
+                    tab.classList.add('active');
+                    const tabName = tab.dataset.tab;
+                    document.getElementById(tabName + 'Tab').classList.remove('hidden');
+                });
+            });
+
+            // Plan info modal logic
+            document.querySelectorAll('.plan-item').forEach(item => {
+                item.addEventListener('click', function() {
+                    const plan = this.dataset.plan;
+                    showPlanModal(plan);
+                });
+            });
+            document.getElementById('closePlanModal').addEventListener('click', () => {
+                document.getElementById('planInfoModal').classList.remove('show');
+            });
+        });
+
+        // Show plan info modal
+        function showPlanModal(plan) {
+            const modal = document.getElementById('planInfoModal');
+            const title = document.getElementById('planModalTitle');
+            const body = document.getElementById('planModalBody');
+            let planTitle = '';
+            let planDesc = '';
+            switch(plan) {
+                case 'nitro':
+                    planTitle = 'Nitro';
+                    planDesc = `<p>Acceso completo al gimnasio en horario regular. Ideal para quienes buscan un entrenamiento eficiente y constante.</p>`;
+                    break;
+                case 'zero':
+                    planTitle = 'Zero';
+                    planDesc = `<p>Incluye todos los beneficios de Nitro, más acceso a clases grupales y zonas exclusivas. Perfecto para quienes buscan variedad y motivación extra.</p>`;
+                    break;
+                case 'tnt':
+                    planTitle = 'TNT';
+                    planDesc = `<p>Plan intensivo con rutinas avanzadas, asesoría personalizada y seguimiento de progreso. Para quienes quieren llevar su entrenamiento al siguiente nivel.</p>`;
+                    break;
+                case 'gainer':
+                    planTitle = 'Gainer';
+                    planDesc = `<p>Enfoque especial en aumento de masa muscular, incluye asesoría nutricional y rutinas especializadas. Ideal para transformación física.</p>`;
+                    break;
+                default:
+                    planTitle = 'Información del Plan';
+                    planDesc = '';
+            }
+            title.textContent = planTitle;
+            body.innerHTML = planDesc;
+            modal.classList.add('show');
+        }
+
+        // Show landing page
+        function showLandingPage() {
+            landingPage.classList.remove('hidden');
+            mainApp.classList.add('hidden');
+        }
+
+        // Show main app
+        function showMainApp() {
+            landingPage.classList.add('hidden');
+            mainApp.classList.remove('hidden');
+            
+            document.getElementById('userEmail').textContent = currentUser.email;
+            
+            if (currentUser.isAdmin) {
+                showAdminDashboard();
+            } else {
+                showMemberDashboard();
+            }
+        }
+
+        // Handle login
+        function handleLogin(e) {
+            e.preventDefault();
+            const email = document.getElementById('loginEmail').value;
+            const password = document.getElementById('loginPassword').value;
+            const errorElement = document.getElementById('loginError');
+
+            // Check admin login
+            if (email === ADMIN_EMAIL && password === ADMIN_PASSWORD) {
+                currentUser = { email, isAdmin: true };
+                localStorage.setItem('currentUser', JSON.stringify(currentUser));
+                showMainApp();
+                return;
+            }
+
+            // Check member login
+            const member = members.find(m => m.email === email && m.password === password);
+            if (member) {
+                currentUser = { email, isAdmin: false, memberId: member.id };
+                localStorage.setItem('currentUser', JSON.stringify(currentUser));
+                showMainApp();
+            } else {
+                errorElement.textContent = 'Correo o contraseña inválidos';
+            }
+        }
+
+        // Handle registration
+        function handleRegister(e) {
+            e.preventDefault();
+            const errorElement = document.getElementById('registerError');
+            
+            // Check if email already exists
+            const email = document.getElementById('regEmail').value;
+            if (members.find(m => m.email === email)) {
+                errorElement.textContent = 'El correo ya está registrado';
+                return;
+            }
+
+            // Create new member
+            const newId = generateId();
+            const member = {
+                id: newId,
+                name: document.getElementById('regName').value,
+                phone: document.getElementById('regPhone').value,
+                email: email,
+                password: document.getElementById('regPassword').value,
+                dob: document.getElementById('regDob').value,
+                weight: parseFloat(document.getElementById('regWeight').value),
+                measurements: {
+                    abdomen: parseFloat(document.getElementById('regAbdomen').value),
+                    cintura: parseFloat(document.getElementById('regCintura').value),
+                    cadera: parseFloat(document.getElementById('regCadera').value),
+                    pierna: parseFloat(document.getElementById('regPierna').value),
+                    brazo: parseFloat(document.getElementById('regBrazo').value),
+                    espalda: parseFloat(document.getElementById('regEspalda').value)
+                },
+                clothing: {
+                    pantalon: document.getElementById('regPantalon').value,
+                    camisa: document.getElementById('regCamisa').value
+                },
+                images: {
+                    before: '',
+                    after: ''
+                },
+                attendance: [],
+                registrationDate: new Date().toISOString(),
+                qrCode: newId
+            };
+
+            members.push(member);
+            localStorage.setItem('gymMembers', JSON.stringify(members));
+            
+            registerModal.classList.remove('show');
+            registerForm.reset();
+            
+            // If admin is registering, refresh the admin dashboard
+            if (currentUser?.isAdmin) {
+                renderMembersTable();
+                updateAdminStats();
+            }
+            
+            // Success message (you can implement a toast notification here)
+            alert('¡Miembro registrado exitosamente!');
+        }
+
+        // Show admin dashboard
+        function showAdminDashboard() {
+            document.getElementById('pageTitle').textContent = 'Admin Dashboard';
+            document.getElementById('memberDashboard').classList.add('hidden');
+            document.getElementById('adminDashboard').classList.remove('hidden');
+            
+            setupNavigation([
+                { name: 'Dashboard', icon: '📊', active: true },
+                { name: 'Members', icon: '👥' },
+                { name: 'Reports', icon: '📈' },
+                { name: 'Settings', icon: '⚙️' }
+            ]);
+            
+            renderMembersTable();
+            updateAdminStats();
+        }
+
+        // Show member dashboard
+        function showMemberDashboard() {
+            const member = members.find(m => m.email === currentUser.email);
+            if (!member) return;
+
+            document.getElementById('pageTitle').textContent = 'My Dashboard';
+            document.getElementById('adminDashboard').classList.add('hidden');
+            document.getElementById('memberDashboard').classList.remove('hidden');
+            
+            setupNavigation([
+                { name: 'QR', icon: '�', tab: 'qr', active: true },
+                { name: 'Perfil', icon: '👤', tab: 'profile' },
+                { name: 'Mediciones', icon: '�', tab: 'measurements' },
+                { name: 'Progreso', icon: '📈', tab: 'progress' }
+            ]);
+            
+            renderMemberData(member);
+        }
+
+        // Setup navigation
+        function setupNavigation(items) {
+            const navMenu = document.getElementById('navMenu');
+            navMenu.innerHTML = '';
+            
+            items.forEach(item => {
+                const li = document.createElement('li');
+                li.className = 'nav-item';
+                li.innerHTML = `
+                    <button class="nav-link ${item.active ? 'active' : ''}" data-tab="${item.tab || ''}">
+                        <span class="nav-icon">${item.icon}</span>
+                        ${item.name}
+                    </button>
+                `;
+                navMenu.appendChild(li);
+            });
+
+            // Only for member dashboard: handle tab switching
+            if (document.getElementById('memberDashboard') && !document.getElementById('memberDashboard').classList.contains('hidden')) {
+                document.querySelectorAll('#navMenu .nav-link').forEach(btn => {
+                    btn.addEventListener('click', function() {
+                        document.querySelectorAll('#navMenu .nav-link').forEach(b => b.classList.remove('active'));
+                        this.classList.add('active');
+                        // Hide all cards
+                        document.querySelectorAll('#memberDashboard .card').forEach(c => c.classList.add('hidden'));
+                        // Show the selected tab
+                        const tab = this.getAttribute('data-tab');
+                        if (tab) {
+                            const tabDiv = document.getElementById(tab + 'Tab');
+                            if (tabDiv) tabDiv.classList.remove('hidden');
+                        }
+                    });
+                });
+                // Show only the first tab by default
+                document.querySelectorAll('#memberDashboard .card').forEach((c, i) => {
+                    if (i === 0) c.classList.remove('hidden');
+                    else c.classList.add('hidden');
+                });
+            }
+        }
+
+        // Render members table
+        function renderMembersTable() {
+            const tbody = document.getElementById('membersTableBody');
+            tbody.innerHTML = '';
+            
+            members.forEach(member => {
+                const row = document.createElement('tr');
+                if (member.attendance.length >= 4) {
+                    row.classList.add('highlight-attendance');
+                }
+                // Attendance dots logic
+                let dots = '';
+                for (let i = 0; i < 4; i++) {
+                    dots += `<span class="attendance-dot${i < member.attendance.length ? ' filled' : ''}"></span>`;
+                }
+                row.innerHTML = `
+                    <td>${member.id}</td>
+                    <td>${member.name}</td>
+                    <td>${member.email}</td>
+                    <td>${member.phone}</td>
+                    <td><div class="attendance-dots">${dots}</div></td>
+                    <td class="table-actions">
+                        <button class="btn btn-primary btn-sm" onclick="editMember('${member.id}')">Editar</button>
+                        <button class="btn btn-success btn-sm" onclick="openMeasurementModal('${member.id}')">Medición</button>
+                    </td>
+                `;
+                tbody.appendChild(row);
+            });
+        }
+
+        // Update admin stats
+        function updateAdminStats() {
+            document.getElementById('totalMembers').textContent = members.length;
+            
+            const today = new Date().toDateString();
+            const todayCheckins = members.reduce((count, member) => {
+                return count + member.attendance.filter(a => new Date(a).toDateString() === today).length;
+            }, 0);
+            document.getElementById('todayCheckins').textContent = todayCheckins;
+            
+            const thisMonth = new Date().getMonth();
+            const monthlyCheckins = members.reduce((count, member) => {
+                return count + member.attendance.filter(a => new Date(a).getMonth() === thisMonth).length;
+            }, 0);
+            document.getElementById('monthlyCheckins').textContent = monthlyCheckins;
+        }
+
+        // Render member data
+        function renderMemberData(member) {
+            // Generate QR code
+            const qrContainer = document.getElementById('memberQRCode');
+            qrContainer.innerHTML = '';
+            const canvas = document.createElement('canvas');
+            qrContainer.appendChild(canvas);
+            QRCode.toCanvas(canvas, member.qrCode, { width: 200 }, function (error) {
+                if (error) console.error(error);
+            });
+
+            // Update stats
+            document.getElementById('memberId').textContent = member.id.substring(0, 8);
+            // Render attendance progress as icons in the Asistencia card
+            const attendanceCountDiv = document.getElementById('attendanceCount');
+            let icons = '';
+            for (let i = 0; i < 4; i++) {
+                icons += `<span class="attendance-icon${i < member.attendance.length ? ' filled' : ''}">🟢</span>`;
+            }
+            attendanceCountDiv.innerHTML = `<div class="attendance-icons" style="margin-top:28px; justify-content:center;">${icons}</div>`;
+            // Remove highlight from the card if present
+            const asistenciaCard = attendanceCountDiv.closest('.stat-card');
+            if (asistenciaCard) {
+                asistenciaCard.classList.remove('highlight-attendance');
+            }
+
+            // Show measurement reminder in the Mediciones stat card only via JS
+            const msg = document.getElementById('memberMeasurementMessage');
+            if (member.attendance && member.attendance.length >= 4) {
+                msg.textContent = '¡Es momento de registrar tu peso y mediciones!';
+                msg.style.display = 'block';
+                msg.style.color = '#856404';
+                msg.style.background = '#fff3cd';
+                msg.style.borderRadius = '12px';
+                msg.style.padding = '8px 12px';
+                msg.style.fontWeight = 'bold';
+                msg.style.marginBottom = '8px';
+                msg.style.textAlign = 'center';
+            } else {
+                msg.textContent = '';
+                msg.style.display = 'none';
+            }
+
+            // Profile information
+            document.getElementById('memberProfile').innerHTML = `
+                <div class="measurement-grid">
+                    <div class="measurement-item">
+                        <div class="measurement-label">Name</div>
+                        <div class="measurement-value">${member.name}</div>
+                    </div>
+                    <div class="measurement-item">
+                        <div class="measurement-label">Email</div>
+                        <div class="measurement-value">${member.email}</div>
+                    </div>
+                    <div class="measurement-item">
+                        <div class="measurement-label">Phone</div>
+                        <div class="measurement-value">${member.phone}</div>
+                    </div>
+                    <div class="measurement-item">
+                        <div class="measurement-label">Date of Birth</div>
+                        <div class="measurement-value">${new Date(member.dob).toLocaleDateString()}</div>
+                    </div>
+                </div>
+            `;
+
+            // Mediciones tab: always show registration values as initial, never update them
+            let initialHtml = `<div class="measurement-grid">
+                <div class="measurement-item"><div class="measurement-label">Peso Inicial</div><div class="measurement-value">${member.weight ?? ''} kg</div></div>
+                <div class="measurement-item"><div class="measurement-label">Abdomen Inicial</div><div class="measurement-value">${member.measurements.abdomen ?? ''} cm</div></div>
+                <div class="measurement-item"><div class="measurement-label">Cintura Inicial</div><div class="measurement-value">${member.measurements.cintura ?? ''} cm</div></div>
+                <div class="measurement-item"><div class="measurement-label">Cadera Inicial</div><div class="measurement-value">${member.measurements.cadera ?? ''} cm</div></div>
+                <div class="measurement-item"><div class="measurement-label">Pierna Inicial</div><div class="measurement-value">${member.measurements.pierna ?? ''} cm</div></div>
+                <div class="measurement-item"><div class="measurement-label">Brazo Inicial</div><div class="measurement-value">${member.measurements.brazo ?? ''} cm</div></div>
+                <div class="measurement-item"><div class="measurement-label">Espalda Inicial</div><div class="measurement-value">${member.measurements.espalda ?? ''} cm</div></div>
+            </div>`;
+
+            // Only clothing measurements (not historical)
+            initialHtml += `<h4 style="margin: 24px 0 16px 0;">Medidas de Ropa</h4>
+                <div class="measurement-grid">
+                    <div class="measurement-item">
+                        <div class="measurement-label">Pantalón</div>
+                        <div class="measurement-value">${member.clothing.pantalon}</div>
+                    </div>
+                    <div class="measurement-item">
+                        <div class="measurement-label">Camisa</div>
+                        <div class="measurement-value">${member.clothing.camisa}</div>
+                    </div>
+                </div>`;
+
+            // Measurement history table (bottom)
+            let historyHtml = '<h4 style="margin:24px 0 8px 0;">Historial de Mediciones</h4>';
+            if (member.measurementHistory && member.measurementHistory.length > 0) {
+                historyHtml += `<table class="table" style="margin-bottom:16px;">
+                    <thead><tr><th>Fecha</th><th>Peso</th><th>Abdomen</th><th>Cintura</th><th>Cadera</th><th>Pierna</th><th>Brazo</th><th>Espalda</th></tr></thead><tbody>`;
+                member.measurementHistory.slice().reverse().forEach(entry => {
+                    const d = new Date(entry.date);
+                    historyHtml += `<tr>
+                        <td>${d.toLocaleDateString()} ${d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</td>
+                        <td>${entry.weight ?? ''}</td>
+                        <td>${entry.abdomen ?? ''}</td>
+                        <td>${entry.cintura ?? ''}</td>
+                        <td>${entry.cadera ?? ''}</td>
+                        <td>${entry.pierna ?? ''}</td>
+                        <td>${entry.brazo ?? ''}</td>
+                        <td>${entry.espalda ?? ''}</td>
+                    </tr>`;
+                });
+                historyHtml += '</tbody></table>';
+            } else {
+                historyHtml += '<div style="color:#888;">Sin historial de mediciones.</div>';
+            }
+            document.getElementById('memberMeasurements').innerHTML = initialHtml + historyHtml;
+
+            // Images
+            const beforeImg = member.images.before ? 
+                `<img src="${member.images.before}" alt="Before photo of member showing initial fitness state">` : 
+                '<div class="image-placeholder">No image uploaded</div>';
+            
+            const afterImg = member.images.after ? 
+                `<img src="${member.images.after}" alt="After photo of member showing fitness progress results">` : 
+                '<div class="image-placeholder">No image uploaded</div>';
+
+            document.getElementById('beforeImage').innerHTML = beforeImg;
+            document.getElementById('afterImage').innerHTML = afterImg;
+
+            // Progress tab and logic removed
+            // The progress tab has been removed from the member dashboard.
+        }
+
+        // Edit member function
+        function editMember(memberId) {
+            const member = members.find(m => m.id === memberId);
+            if (!member) return;
+
+            // Populate edit form
+            document.getElementById('editMemberId').value = member.id;
+            document.getElementById('editName').value = member.name;
+            document.getElementById('editPhone').value = member.phone;
+            document.getElementById('editEmail').value = member.email;
+            document.getElementById('editDob').value = member.dob;
+            document.getElementById('editWeight').value = member.weight;
+            document.getElementById('editAbdomen').value = member.measurements.abdomen;
+            document.getElementById('editCintura').value = member.measurements.cintura;
+            document.getElementById('editCadera').value = member.measurements.cadera;
+            document.getElementById('editPierna').value = member.measurements.pierna;
+            document.getElementById('editBrazo').value = member.measurements.brazo;
+            document.getElementById('editEspalda').value = member.measurements.espalda;
+            document.getElementById('editPantalon').value = member.clothing.pantalon;
+            document.getElementById('editCamisa').value = member.clothing.camisa;
+
+            // Reset file inputs
+            document.getElementById('editBeforeImg').value = '';
+            document.getElementById('editAfterImg').value = '';
+            // Show previews if images exist
+            const beforePreview = document.getElementById('editBeforePreview');
+            const afterPreview = document.getElementById('editAfterPreview');
+            if (member.images.before) {
+                beforePreview.src = member.images.before;
+                beforePreview.style.display = 'block';
+            } else {
+                beforePreview.src = '';
+                beforePreview.style.display = 'none';
+            }
+            if (member.images.after) {
+                afterPreview.src = member.images.after;
+                afterPreview.style.display = 'block';
+            } else {
+                afterPreview.src = '';
+                afterPreview.style.display = 'none';
+            }
+
+            editModal.classList.add('show');
+        }
+
+        // Handle edit member
+        function handleEditMember(e) {
+            e.preventDefault();
+            const memberId = document.getElementById('editMemberId').value;
+            const memberIndex = members.findIndex(m => m.id === memberId);
+            
+            if (memberIndex === -1) return;
+
+            // Handle image files (async)
+            const beforeFile = document.getElementById('editBeforeImg').files[0];
+            const afterFile = document.getElementById('editAfterImg').files[0];
+            const getBase64 = file => new Promise((resolve, reject) => {
+                if (!file) return resolve(null);
+                const reader = new FileReader();
+                reader.onload = e => resolve(e.target.result);
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            });
+
+            Promise.all([getBase64(beforeFile), getBase64(afterFile)]).then(([beforeBase64, afterBase64]) => {
+                // Only allow editing of name, phone, email, dob, clothing, images, and password. Never update initial weight/measurements.
+                const updatedMember = {
+                    ...members[memberIndex],
+                    name: document.getElementById('editName').value,
+                    phone: document.getElementById('editPhone').value,
+                    email: document.getElementById('editEmail').value,
+                    dob: document.getElementById('editDob').value,
+                    clothing: {
+                        pantalon: document.getElementById('editPantalon').value,
+                        camisa: document.getElementById('editCamisa').value
+                    },
+                    images: {
+                        before: beforeBase64 || members[memberIndex].images.before || '',
+                        after: afterBase64 || members[memberIndex].images.after || ''
+                    }
+                };
+                // Update password if provided
+                const newPassword = document.getElementById('editPassword').value;
+                if (newPassword) {
+                    updatedMember.password = newPassword;
+                }
+                members[memberIndex] = updatedMember;
+                localStorage.setItem('gymMembers', JSON.stringify(members));
+                editModal.classList.remove('show');
+                renderMembersTable();
+                document.getElementById('editSuccess').textContent = 'Member updated successfully!';
+                setTimeout(() => {
+                    document.getElementById('editSuccess').textContent = '';
+                }, 3000);
+            });
+        }
+
+        // Delete member
+        function deleteMember() {
+            const memberId = document.getElementById('editMemberId').value;
+            if (confirm('Are you sure you want to delete this member?')) {
+                members = members.filter(m => m.id !== memberId);
+                localStorage.setItem('gymMembers', JSON.stringify(members));
+                editModal.classList.remove('show');
+                renderMembersTable();
+                updateAdminStats();
+            }
+        }
+
+        // Mark attendance
+        function markAttendance(memberId) {
+            const memberIndex = members.findIndex(m => m.id === memberId);
+            if (memberIndex !== -1) {
+                members[memberIndex].attendance.push(new Date().toISOString());
+                localStorage.setItem('gymMembers', JSON.stringify(members));
+                renderMembersTable();
+                updateAdminStats();
+                alert('Attendance marked successfully!');
+            }
+        }
+
+        // QR Scanner functions
+        function openQRScanner() {
+            scannerModal.classList.add('show');
+            
+            qrScanner = new Html5Qrcode("qr-reader");
+            qrScanner.start(
+                { facingMode: "environment" },
+                {
+                    fps: 10,
+                    qrbox: { width: 250, height: 250 }
+                },
+                (decodedText, decodedResult) => {
+                    // Find member by QR code
+                    const member = members.find(m => m.qrCode === decodedText);
+                    if (member) {
+                        markAttendance(member.id);
+                        document.getElementById('scanResult').textContent = 
+                            `✅ Check-in recorded for ${member.name}`;
+                        closeQRScanner();
+                    } else {
+                        document.getElementById('scanResult').textContent = 
+                            '❌ Member not found';
+                    }
+                },
+                               (errorMessage) => {
+                    // Handle scan failure
+                }
+            ).catch(err => {
+                console.error('QR Scanner error:', err);
+            });
+        }
+
+
+
+        function closeQRScanner() {
+            if (qrScanner) {
+                qrScanner.stop();
+                               qrScanner = null;
+            }
+            scannerModal.classList.remove('show');
+            document.getElementById('scanResult').textContent = '';
+        }
+
+        // Sign out
+        function signOut() {
+            console.log('signOut called');
+            currentUser = null;
+            localStorage.removeItem('currentUser');
+            showLandingPage();
+        }
+
+        // Utility function to generate ID
+       
+       
+        function generateId() {
+            return '_' + Math.random().toString(36).substr(2, 9);
+        }
+
+        // Make functions globally available
+        window.editMember = editMember;
+        window.markAttendance = markAttendance;
+
+        // Tab switching logic for 3 tabs
+        const landingTabs = document.querySelectorAll('.landing-tab');
+        const landingTabContents = document.querySelectorAll('.landing-tab-content');
+        landingTabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                landingTabs.forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+                landingTabContents.forEach(c => c.classList.remove('active'));
+                const tabName = tab.dataset.tab;
+                if(tabName === 'info') document.getElementById('gymInfo').classList.add('active');
+                if(tabName === 'login') document.getElementById('loginTab').classList.add('active');
+                if(tabName === 'contact') document.getElementById('contactTab').classList.add('active');
+            });
+        });
+
+        // Set only info tab as active by default
+        ['gymInfo','loginTab','contactTab'].forEach(id => document.getElementById(id).classList.remove('active'));
+document.getElementById('gymInfo').classList.add('active');
+
+// Show member QR code in Contacto tab if logged in as member
+function showContactTabQRCode() {
+    const qrDiv = document.getElementById('contactTabQRCode');
+    const promptDiv = document.getElementById('contactTabQRPrompt');
+    qrDiv.innerHTML = '';
+    promptDiv.innerHTML = '';
+    let member = null;
+    if (currentUser && !currentUser.isAdmin) {
+        const members = JSON.parse(localStorage.getItem('gymMembers') || '[]');
+        member = members.find(m => m.id === currentUser.memberId || m.email === currentUser.email);
+    }
+    if (!member) {
+        // Not logged in, prompt for email
+        promptDiv.innerHTML = '<label for="qrEmailInput">Ingresa tu correo para ver tu QR:</label><input id="qrEmailInput" type="email" style="margin-left:8px; padding:4px; border-radius:4px; border:1px solid #ccc; width: 220px;"> <button id="qrEmailBtn" class="btn btn-primary btn-sm">Mostrar QR</button><div id="qrEmailError" style="color:#ef4444; margin-top:8px;"></div>';
+        document.getElementById('qrEmailBtn').onclick = function() {
+            const email = document.getElementById('qrEmailInput').value.trim();
+            const members = JSON.parse(localStorage.getItem('gymMembers') || '[]');
+            const found = members.find(m => m.email === email);
+            qrDiv.innerHTML = '';
+            document.getElementById('qrEmailError').textContent = '';
+            if (found && found.qrCode) {
+                const canvas = document.createElement('canvas');
+                qrDiv.appendChild(canvas);
+                QRCode.toCanvas(canvas, found.qrCode, { width: 200 }, function (error) {
+                    if (error) console.error(error);
+                });
+            } else {
+                document.getElementById('qrEmailError').textContent = 'Correo no encontrado.';
+            }
+        };
+    } else if (member.qrCode) {
+        const canvas = document.createElement('canvas');
+        qrDiv.appendChild(canvas);
+        QRCode.toCanvas(canvas, member.qrCode, { width: 200 }, function (error) {
+            if (error) console.error(error);
+        });
+    }
+}
+const contactTabBtn = document.querySelector('.landing-tab[data-tab="contact"]');
+if (contactTabBtn) {
+    contactTabBtn.addEventListener('click', showContactTabQRCode);
+}
+    </script>
+</body>
+</html>
