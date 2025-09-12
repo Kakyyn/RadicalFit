@@ -575,43 +575,78 @@
         }
 
         /* Responsive */
-        @media (max-width: 768px) {
-            .sidebar {
-                transform: translateX(-100%);
-                position: fixed;
-                height: 100vh;
-                z-index: 100;
-            }
-
-            .sidebar.show {
-                transform: translateX(0);
-            }
-
-            .main-content {
-                padding: 16px;
-            }
-
-            .card-grid {
-                grid-template-columns: 1fr;
-            }
-
-            .form-grid {
-                grid-template-columns: 1fr;
-            }
-
-            .landing-content {
-                margin: 20px;
-                padding: 24px;
-            }
-
-            .landing-title {
-                font-size: 28px;
-            }
-
-            .landing-tabs {
-                flex-direction: column;
-            }
-        }
+        @media (max-width: 900px) {
+  .app-container {
+    flex-direction: column;
+  }
+  .sidebar {
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid #333;
+    padding: 12px;
+  }
+  .main-content {
+    padding: 12px;
+  }
+  .card-grid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  .stat-card, .card {
+    padding: 16px;
+  }
+  .header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+}
+@media (max-width: 600px) {
+  .landing-content, .main-content {
+    padding: 8px;
+  }
+  .sidebar {
+    padding: 8px;
+    font-size: 15px;
+  }
+  .logo-text {
+    font-size: 18px;
+  }
+  .landing-title {
+    font-size: 20px;
+  }
+  .stat-card, .card {
+    padding: 8px;
+    font-size: 15px;
+  }
+  .card-title, .stat-title {
+    font-size: 15px;
+  }
+  .stat-value {
+    font-size: 20px;
+  }
+  .form-label, .form-input, .btn {
+    font-size: 15px;
+  }
+  .card-grid, .form-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+  .member-images {
+    grid-template-columns: 1fr;
+  }
+  .attendance-icons {
+    gap: 12px;
+  }
+  .attendance-icon {
+    font-size: 32px;
+  }
+  .qr-container canvas {
+    width: 100% !important;
+    max-width: 220px;
+    height: auto !important;
+  }
+}
 
         .hidden {
             display: none;
