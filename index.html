@@ -2,6 +2,9 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <!-- PWA and Apple Touch Icon -->
+    <link rel="apple-touch-icon" sizes="180x180" href="https://raw.githubusercontent.com/Kakyyn/RadicalFit/5e7e4575e3f7dab9ac0cf03d74d527b9cb3d1c07/logo180.png">
+    <link rel="icon" type="image/png" sizes="180x180" href="https://raw.githubusercontent.com/Kakyyn/RadicalFit/5e7e4575e3f7dab9ac0cf03d74d527b9cb3d1c07/logo180.png">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>FitGym - Member Management</title>
     <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.1/build/qrcode.min.js"></script>
@@ -15,8 +18,8 @@
 
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: #121212;
-            color: #ffffff;
+            background: #181818;
+            color: #fffbe7;
             line-height: 1.6;
             overflow-x: hidden;
         }
@@ -33,7 +36,7 @@
         .highlight-attendance td {
             border-left: none !important;
             border-right: none !important;
-            background: rgba(15, 255, 7, 0.07);
+            background: #fffde780;
         }
         .highlight-attendance td:first-child {
             border-top-left-radius: 999px;
@@ -61,9 +64,9 @@
             transition: background 0.2s, border 0.2s;
         }
         .attendance-dot.filled {
-            background: #28ff07;
-            border-color: #17ff07;
-            box-shadow: 0 0 4px #77ff0799;
+            background: #ffd600;
+            border-color: #ffe066;
+            box-shadow: 0 0 4px #ffd60099;
         }
         .attendance-dots {
             display: flex;
@@ -87,8 +90,8 @@
             display: inline-block;
         }
         .attendance-dot.filled {
-            background: #5aff07;
-            border-color: #39ff07;
+            background: #ffd600;
+            border-color: #ffe066;
         }
 
         .attendance-icons {
@@ -106,16 +109,16 @@
         }
         .attendance-icon.filled {
             opacity: 1;
-            color: #28ff07;
+            color: #ffd600;
             filter: none;
         }
 
         /* Sidebar */
         .sidebar {
             width: 280px;
-            background: #1a1a1a;
+            background: #232323;
             padding: 24px;
-            border-right: 1px solid #333;
+            border-right: 1px solid #ffd60044;
             transition: transform 0.3s ease;
         }
 
@@ -130,19 +133,21 @@
         .logo-icon {
             width: 40px;
             height: 40px;
-            background: #6366f1;
+            background: #ffd600;
             border-radius: 12px;
             display: flex;
             align-items: center;
             justify-content: center;
             font-weight: bold;
             font-size: 20px;
+            color: #181818;
         }
 
         .logo-text {
             font-size: 24px;
             font-weight: 700;
-            color: #ffffff;
+            color: #ffd600;
+            letter-spacing: 1px;
         }
 
         .nav-menu {
@@ -160,7 +165,7 @@
             padding: 12px 16px;
             background: none;
             border: none;
-            color: #9ca3af;
+            color: #fffbe7;
             text-decoration: none;
             border-radius: 12px;
             transition: all 0.2s ease;
@@ -172,8 +177,8 @@
 
         .nav-link:hover,
         .nav-link.active {
-            background: #2a2a2a;
-            color: #ffffff;
+            background: #ffd60022;
+            color: #ffd600;
         }
 
         .nav-icon {
@@ -250,7 +255,7 @@
         .stat-icon {
             width: 48px;
             height: 48px;
-            background: #6366f1;
+            background: #ffd600;
             border-radius: 12px;
             display: flex;
             align-items: center;
@@ -304,7 +309,7 @@
 
         .form-input:focus {
             outline: none;
-            border-color: #6366f1;
+            border-color: #ecf163;
         }
 
         /* Buttons */
@@ -323,30 +328,35 @@
         }
 
         .btn-primary {
-            background: #6366f1;
-            color: #ffffff;
+            background: #ffd600;
+            color: #181818;
+            box-shadow: 0 2px 8px #ffd60033;
         }
 
         .btn-primary:hover {
-            background: #5855eb;
+            background: #ffd600;
+            color: #181818;
         }
 
         .btn-secondary {
-            background: #374151;
-            color: #ffffff;
+            background: #1e3a8a;
+            color: #fffbe7;
+            box-shadow: 0 2px 8px #1e3a8a33;
         }
 
         .btn-secondary:hover {
-            background: #4b5563;
+            background: #2563eb;
+            color: #fffbe7;
         }
 
         .btn-danger {
-            background: #ef4444;
-            color: #ffffff;
+            background: #1e3a8a;
+            color: #ffd600;
         }
 
         .btn-danger:hover {
-            background: #dc2626;
+            background: #2563eb;
+            color: #fffbe7;
         }
 
         .btn-group {
@@ -479,7 +489,7 @@
         .landing-logo {
             width: 80px;
             height: 80px;
-            background: #6366f1;
+            background: #ffe066;
             border-radius: 20px;
             display: flex;
             align-items: center;
@@ -523,8 +533,8 @@
         }
 
         .landing-tab.active {
-            background: #6366f1;
-            color: #ffffff;
+            background: #ffd600;
+            color: #000000;
         }
 
         .landing-tab-content {
@@ -868,8 +878,7 @@
     <!-- Landing Page -->
     <div id="landingPage" class="landing-container">
         <div class="landing-content">
-            <div class="landing-logo">F</div>
-            <h1 class="landing-title">Radical Fit</h1>
+            <img src="https://raw.githubusercontent.com/Kakyyn/RadicalFit/5e7e4575e3f7dab9ac0cf03d74d527b9cb3d1c07/logo.png" alt="Radical Fit Logo" style="width:346px;height:160px;border-radius:28px;display:block;margin:0 auto 18px auto;">
             <p class="landing-subtitle">Transforma tu cuerpo.</p>
             
             <div class="landing-tabs">
@@ -936,9 +945,8 @@
         <button class="menu-toggle" id="menuToggleBtn" style="position:fixed;top:16px;left:16px;z-index:1100;">☰</button>
         <!-- Sidebar -->
         <aside class="sidebar">
-            <div class="logo">
-                <div class="logo-icon">F</div>
-                <span class="logo-text">Radical Fit</span>
+            <div class="logo" style="display:flex;flex-direction:column;align-items:center;gap:8px;">
+                <img src="https://raw.githubusercontent.com/Kakyyn/RadicalFit/5e7e4575e3f7dab9ac0cf03d74d527b9cb3d1c07/logo.png" alt="Radical Fit Logo" style="width:260px;height:120px;object-fit:contain;">
             </div>
             <nav>
                 <ul class="nav-menu" id="navMenu">
@@ -1029,7 +1037,7 @@
 
             <!-- Admin Dashboard -->
             <div id="adminDashboard" class="hidden">
-                <div class="card-grid">
+                <div class="card-grid" id="adminCardGrid">
                     <div class="stat-card">
                         <div class="stat-icon">👥</div>
                         <div class="stat-title">Total de Miembros</div>
@@ -1047,7 +1055,7 @@
                     </div>
                 </div>
 
-                <div class="card">
+                <div class="card" id="miembrosTab">
                     <div class="card-header">
                         <h3 class="card-title">Gestión de Miembros</h3>
                         <div class="btn-group">
@@ -1069,6 +1077,106 @@
                         <tbody id="membersTableBody">
                         </tbody>
                     </table>
+                </div>
+
+                <!-- Compras Tab Content -->
+                <div class="card hidden" id="comprasTab" style="margin-top:32px;">
+                    <div class="card-header">
+                        <h3 class="card-title">Compras</h3>
+                        <div class="btn-group">
+                            <button id="registrarCompraBtn" class="btn btn-primary">Registrar compra</button>
+                            <button id="elegirGanadorBtn" class="btn btn-success">Elegir ganador</button>
+                        </div>
+                    </div>
+                    <div id="comprasWinner" style="margin:12px 0 16px 0;"></div>
+                    <ul id="comprasList" style="min-height:40px;list-style:none;padding:0;margin:0 0 12px 0;"></ul>
+                </div>
+                <div class="card hidden" id="ajustesTab" style="margin-top:32px;">
+                    <div class="card-header">
+                        <h3 class="card-title">Ajustes</h3>
+                    </div>
+                    <div style="display:flex;flex-direction:column;align-items:center;gap:18px;margin:32px 0 24px 0;">
+                        <button id="resetAllBtn" class="btn btn-danger" style="min-width:220px;background:#ef4444;color:#fff;">Eliminar todos los datos</button>
+                        <button id="exportDataBtn" class="btn btn-secondary" style="display:inline-block;min-width:220px;text-align:center;cursor:pointer;">Exportar datos</button>
+                        <label for="importDataInput" style="min-width:220px;">
+                            <input id="importDataInput" type="file" accept="application/json" style="display:none;">
+                            <span class="btn btn-secondary" style="width:100%;display:inline-block;text-align:center;cursor:pointer;">Importar datos</span>
+                        </label>
+                    </div>
+                    <div id="settingsMessage" class="error-message" style="margin-top:16px;text-align:center;"></div>
+<script>
+// Ajustes tab logic
+document.addEventListener('DOMContentLoaded', function() {
+    // Reset all data
+    const resetBtn = document.getElementById('resetAllBtn');
+    if (resetBtn) {
+        resetBtn.addEventListener('click', function() {
+            if (confirm('¿Estás seguro de que deseas eliminar TODOS los datos? Esta acción no se puede deshacer.')) {
+                localStorage.clear();
+                location.reload();
+            }
+        });
+    }
+    // Export data
+    const exportBtn = document.getElementById('exportDataBtn');
+    if (exportBtn) {
+        exportBtn.addEventListener('click', function() {
+            const msg = document.getElementById('settingsMessage');
+            try {
+                const data = {};
+                Object.keys(localStorage).forEach(key => {
+                    data[key] = localStorage.getItem(key);
+                });
+                const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.style.display = 'none';
+                a.href = url;
+                a.download = 'radicalfit-backup-' + new Date().toISOString().slice(0,10) + '.json';
+                document.body.appendChild(a);
+                a.click();
+                setTimeout(() => {
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                }, 200);
+                if (msg) {
+                    msg.textContent = 'Exportación iniciada. Revisa tu carpeta de descargas.';
+                    msg.style.color = '#10b981';
+                    setTimeout(() => { msg.textContent = ''; msg.style.color = '' }, 4000);
+                }
+            } catch (err) {
+                if (msg) {
+                    msg.textContent = 'Error al exportar: ' + err.message;
+                    msg.style.color = '#ef4444';
+                }
+            }
+        });
+    }
+    // Import data
+    const importInput = document.getElementById('importDataInput');
+    if (importInput) {
+        importInput.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(evt) {
+                try {
+                    const imported = JSON.parse(evt.target.result);
+                    if (typeof imported !== 'object' || Array.isArray(imported)) throw new Error('Formato inválido');
+                    for (const key in imported) {
+                        localStorage.setItem(key, imported[key]);
+                    }
+                    document.getElementById('settingsMessage').textContent = 'Datos importados correctamente. Recargando...';
+                    setTimeout(() => location.reload(), 1200);
+                } catch (err) {
+                    document.getElementById('settingsMessage').textContent = 'Error al importar: ' + err.message;
+                }
+            };
+            reader.readAsText(file);
+        });
+    }
+});
+</script>
                 </div>
             </div>
         </main>
@@ -1276,6 +1384,21 @@
     </div>
 
     <!-- Measurement Modal -->
+    <!-- Purchase Modal -->
+    <div id="purchaseModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title">Registrar Compra</h2>
+                <button class="close-btn" id="closePurchaseModal">&times;</button>
+            </div>
+            <div id="purchase-qr-reader" style="width: 100%; max-width: 400px; margin: 0 auto;"></div>
+            <div style="margin: 16px 0; text-align: center;">
+                <input id="purchaseManualIdInput" type="text" placeholder="Ingresar ID o nombre de miembro" style="padding:8px; border-radius:6px; border:1px solid #ccc; width: 220px;">
+                <button id="purchaseManualIdBtn" class="btn btn-primary btn-sm" style="margin-left:8px;">Registrar Compra</button>
+            </div>
+            <div id="purchaseResult" class="success-message" style="text-align: center; margin-top: 16px;"></div>
+        </div>
+    </div>
     <div id="measurementModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
@@ -1325,6 +1448,105 @@
     </div>
 
     <script>
+        // Purchase Modal logic
+        const purchaseModal = document.getElementById('purchaseModal');
+        const purchaseManualIdInput = document.getElementById('purchaseManualIdInput');
+        const purchaseManualIdBtn = document.getElementById('purchaseManualIdBtn');
+        const closePurchaseModalBtn = document.getElementById('closePurchaseModal');
+        let purchaseQrScanner = null;
+
+        function openPurchaseModal() {
+            purchaseModal.classList.add('show');
+            document.getElementById('purchaseResult').textContent = '';
+            purchaseManualIdInput.value = '';
+            // Optionally, start QR scanner for purchases
+            if (window.Html5Qrcode) {
+                purchaseQrScanner = new Html5Qrcode('purchase-qr-reader');
+                purchaseQrScanner.start(
+                    { facingMode: 'environment' },
+                    { fps: 10, qrbox: { width: 250, height: 250 } },
+                    (decodedText) => {
+                        handlePurchaseMember(decodedText);
+                        closePurchaseModal();
+                    },
+                    () => {}
+                ).catch(() => {});
+            }
+        }
+
+        function closePurchaseModal() {
+            if (purchaseQrScanner) {
+                purchaseQrScanner.stop();
+                purchaseQrScanner = null;
+            }
+            purchaseModal.classList.remove('show');
+        }
+
+        function handlePurchaseMember(input) {
+            if (!input) return;
+            let member = members.find(m => m.id === input || m.name.toLowerCase() === input.toLowerCase());
+            if (!member) {
+                // Try to find by partial name
+                member = members.find(m => m.name.toLowerCase().includes(input.toLowerCase()));
+            }
+            if (!member) {
+                document.getElementById('purchaseResult').textContent = 'Miembro no encontrado.';
+                return;
+            }
+            addCompraForMember(member);
+            document.getElementById('purchaseResult').textContent = '¡Compra registrada para ' + member.name + '!';
+        }
+
+        if (purchaseManualIdBtn) {
+            purchaseManualIdBtn.addEventListener('click', function() {
+                const input = purchaseManualIdInput.value.trim();
+                handlePurchaseMember(input);
+            });
+        }
+        if (closePurchaseModalBtn) {
+            closePurchaseModalBtn.addEventListener('click', closePurchaseModal);
+        }
+        // Winner display logic
+        function renderComprasWinner() {
+            const winnerDiv = document.getElementById('comprasWinner');
+            const winnerData = JSON.parse(localStorage.getItem('comprasWinner'));
+            if (winnerData && winnerData.name && winnerData.date) {
+                const dateStr = new Date(winnerData.date).toLocaleString();
+                winnerDiv.innerHTML = `<div style="background:#222;padding:12px 18px;border-radius:10px;text-align:center;font-size:1.1em;">
+                    <b>Ganador actual:</b> <span style="color:#FFD600;">${winnerData.name}</span><br>
+                    <span style="font-size:0.95em;color:#aaa;">${dateStr}</span>
+                </div>`;
+            } else {
+                winnerDiv.innerHTML = '';
+            }
+        }
+        // Elegir ganador logic
+        function elegirGanador() {
+            if (comprasList.length === 0) {
+                alert('No hay participantes.');
+                return;
+            }
+            // Build weighted array
+            let weighted = [];
+            comprasList.forEach(item => {
+                for (let i = 0; i < (item.count || 1); i++) {
+                    weighted.push(item);
+                }
+            });
+            if (weighted.length === 0) {
+                alert('No hay participantes.');
+                return;
+            }
+            const winner = weighted[Math.floor(Math.random() * weighted.length)];
+            // Save winner and date
+            const winnerData = { name: winner.name, id: winner.id, date: new Date().toISOString() };
+            localStorage.setItem('comprasWinner', JSON.stringify(winnerData));
+            renderComprasWinner();
+            // Clear compras list for next round
+            comprasList = [];
+            localStorage.setItem('comprasList', JSON.stringify(comprasList));
+            renderComprasList();
+        }
         // PWA Service Worker Registration
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('service-worker.js');
@@ -1505,17 +1727,47 @@
             }
 
             // Landing page tab switching
+            function attachPlanItemListeners() {
+                var planItems = document.querySelectorAll('.plan-item');
+                if (planItems.length) {
+                    planItems.forEach(item => {
+                        item.removeEventListener('click', planItemHandler);
+                        item.addEventListener('click', planItemHandler);
+                    });
+                }
+                var closePlanModalBtn = document.getElementById('closePlanModal');
+                if (closePlanModalBtn) {
+                    closePlanModalBtn.removeEventListener('click', closePlanModalHandler);
+                    closePlanModalBtn.addEventListener('click', closePlanModalHandler);
+                }
+            }
+            function planItemHandler() {
+                const plan = this.dataset.plan;
+                showPlanModal(plan);
+            }
+            function closePlanModalHandler() {
+                document.getElementById('planInfoModal').classList.remove('show');
+            }
+            // Unified tab switching logic
             document.querySelectorAll('.landing-tab').forEach(tab => {
                 tab.addEventListener('click', () => {
                     document.querySelectorAll('.landing-tab').forEach(t => t.classList.remove('active'));
                     document.querySelectorAll('.landing-tab-content').forEach(c => c.classList.remove('active'));
                     tab.classList.add('active');
-                    // Show the correct tab content based on data-tab
-                    if (tab.dataset.tab === 'info') document.getElementById('gymInfo').classList.add('active');
-                    else if (tab.dataset.tab === 'login') document.getElementById('loginTab').classList.add('active');
-                    else if (tab.dataset.tab === 'contact') document.getElementById('contactTab').classList.add('active');
+                    if (tab.dataset.tab === 'info') {
+                        document.getElementById('gymInfo').classList.add('active');
+                        attachPlanItemListeners();
+                    } else if (tab.dataset.tab === 'login') {
+                        document.getElementById('loginTab').classList.add('active');
+                    } else if (tab.dataset.tab === 'contact') {
+                        document.getElementById('contactTab').classList.add('active');
+                    }
                 });
             });
+            // Attach listeners on load if info tab is default
+            if(document.getElementById('gymInfo')?.classList.contains('active')) {
+                attachPlanItemListeners();
+            }
 
             // Modal event listeners
             document.getElementById('registerBtn').addEventListener('click', () => {
@@ -1560,9 +1812,13 @@
             document.getElementById('closeScannerModal')?.addEventListener('click', closeQRScanner);
 
             // Edit modal
-            document.getElementById('closeEditModal').addEventListener('click', () => {
-                editModal.classList.remove('show');
-            });
+            // Fix: Ensure closeEditModal exists before adding event listener
+            const closeEditModalBtn = document.getElementById('closeEditModal');
+            if (closeEditModalBtn) {
+                closeEditModalBtn.addEventListener('click', () => {
+                    editModal.classList.remove('show');
+                });
+            }
 
             document.getElementById('cancelEdit').addEventListener('click', () => {
                 editModal.classList.remove('show');
@@ -1582,16 +1838,8 @@
                 });
             });
 
-            // Plan info modal logic
-            document.querySelectorAll('.plan-item').forEach(item => {
-                item.addEventListener('click', function() {
-                    const plan = this.dataset.plan;
-                    showPlanModal(plan);
-                });
-            });
-            document.getElementById('closePlanModal').addEventListener('click', () => {
-                document.getElementById('planInfoModal').classList.remove('show');
-            });
+
+
         });
 
         // Show plan info modal
@@ -1732,6 +1980,56 @@
             alert('¡Miembro registrado exitosamente!');
         }
 
+        // Compras logic
+
+        let comprasList = JSON.parse(localStorage.getItem('comprasList')) || [];
+
+        function renderComprasList() {
+            const ul = document.getElementById('comprasList');
+            ul.innerHTML = '';
+            if (comprasList.length === 0) {
+                ul.innerHTML = '<li style="color:#aaa;text-align:center;">Sin compras registradas</li>';
+                return;
+            }
+            comprasList.forEach(item => {
+                let dots = '';
+                for (let i = 0; i < item.count; i++) {
+                    dots += '<span style="display:inline-block;width:14px;height:14px;background:#FFD600;border-radius:50%;margin-right:4px;"></span>';
+                }
+                ul.innerHTML += `<li style="display:flex;align-items:center;gap:10px;padding:8px 0 8px 0;border-bottom:1px solid #222;">
+                    ${dots}
+                    <span>${item.name}</span>
+                </li>`;
+            });
+        }
+
+        function addCompraForMember(member) {
+            let found = comprasList.find(c => c.id === member.id);
+            if (found) {
+                found.count = (found.count || 1) + 1;
+            } else {
+                comprasList.push({ id: member.id, name: member.name, count: 1 });
+            }
+            localStorage.setItem('comprasList', JSON.stringify(comprasList));
+            renderComprasList();
+        }
+
+        function handleRegistrarCompra() {
+            // Ask for QR/manual ID or name
+            const input = prompt('Ingrese el ID, nombre o escanee el QR del miembro para registrar la compra:');
+            if (!input) return;
+            let member = members.find(m => m.id === input || m.name.toLowerCase() === input.toLowerCase());
+            if (!member) {
+                // Try to find by partial name
+                member = members.find(m => m.name.toLowerCase().includes(input.toLowerCase()));
+            }
+            if (!member) {
+                alert('Miembro no encontrado.');
+                return;
+            }
+            addCompraForMember(member);
+        }
+
         // Show admin dashboard
         function showAdminDashboard() {
             document.getElementById('pageTitle').textContent = 'Admin Dashboard';
@@ -1739,14 +2037,44 @@
             document.getElementById('adminDashboard').classList.remove('hidden');
             
             setupNavigation([
-                { name: 'Dashboard', icon: '📊', active: true },
-                { name: 'Members', icon: '👥' },
-                { name: 'Reports', icon: '📈' },
-                { name: 'Settings', icon: '⚙️' }
+                { name: 'Dashboard', icon: '📊', tab: 'miembros', active: true },
+                { name: 'Compras', icon: '👥', tab: 'compras' },
+                { name: 'Ajustes', icon: '⚙️', tab: 'ajustes' }
             ]);
-            
+            // Show only the members tab by default
+            document.getElementById('miembrosTab').classList.remove('hidden');
+            document.getElementById('comprasTab').classList.add('hidden');
+            // Add event listeners for admin tabs
+            document.querySelectorAll('#navMenu .nav-link').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    document.querySelectorAll('#navMenu .nav-link').forEach(b => b.classList.remove('active'));
+                    this.classList.add('active');
+                    // Hide all admin cards
+                    document.getElementById('miembrosTab').classList.add('hidden');
+                    document.getElementById('comprasTab').classList.add('hidden');
+                    // Show the selected tab
+                    const tab = this.getAttribute('data-tab');
+                    if (tab === 'compras') {
+                        document.getElementById('comprasTab').classList.remove('hidden');
+                        renderComprasList();
+                    } else if (tab === 'ajustes') {
+                        document.getElementById('ajustesTab').classList.remove('hidden');
+                    } else {
+                        document.getElementById('miembrosTab').classList.remove('hidden');
+                    }
+                });
+            });
             renderMembersTable();
             updateAdminStats();
+            // Setup compras button
+            setTimeout(() => {
+                const btn = document.getElementById('registrarCompraBtn');
+                if (btn) btn.onclick = openPurchaseModal;
+                renderComprasList();
+                renderComprasWinner();
+                const ganadorBtn = document.getElementById('elegirGanadorBtn');
+                if (ganadorBtn) ganadorBtn.onclick = elegirGanador;
+            }, 0);
         }
 
         // Show member dashboard
@@ -1788,7 +2116,7 @@
             // Add Sign Out button at the very bottom of the sidebar (not scrollable)
             const signOutContainer = document.getElementById('signOutContainer');
             signOutContainer.innerHTML = `
-                <button id="signOutBtn" class="nav-link" style="color:#ef4444;gap:10px;width:100%;"><span class="nav-icon">🚪</span>Cerrar Sesión</button>
+                <button id="signOutBtn" class="nav-link" style="color:#ef4444;gap:10px;width:calc(100% - 32px);margin:0 16px;box-sizing:border-box;overflow:hidden;white-space:nowrap;"><span class="nav-icon">🚪</span>Cerrar Sesión</button>
             `;
             document.getElementById('signOutBtn').addEventListener('click', signOut);
 
