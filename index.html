@@ -584,6 +584,21 @@
     border-right: none;
     border-bottom: 1px solid #333;
     padding: 12px;
+    position: fixed;
+    left: 0;
+    top: 0;
+    height: 100vh;
+    z-index: 1100;
+    background: #1a1a1a;
+    transform: translateX(-100%);
+    transition: transform 0.3s;
+    width: 220px;
+    box-shadow: 2px 0 8px #0002;
+    display: block !important;
+  }
+  .sidebar.open {
+    transform: translateX(0);
+    display: block !important;
   }
   .main-content {
     padding: 12px;
@@ -595,11 +610,22 @@
   .stat-card, .card {
     padding: 16px;
   }
-  .header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 12px;
-  }
+    .header {
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+        margin-top: 0;
+        margin-bottom: 16px;
+        padding-top: 0;
+    }
+    .page-title {
+        text-align: center;
+        width: 100%;
+        margin-top: 0;
+        margin-bottom: 0;
+        padding-top: 0;
+        padding-bottom: 0;
+    }
 }
 @media (max-width: 600px) {
   .landing-content, .main-content {
@@ -760,6 +786,83 @@
         }
         .landing-tab-content { display: none; }
 .landing-tab-content.active { display: block; }
+
+        /* Hamburger menu styles */
+        .menu-toggle {
+  display: none;
+  position: absolute;
+  top: 18px;
+  left: 18px;
+  background: none;
+  border: none;
+  font-size: 28px;
+  color: #fff;
+  z-index: 1001;
+  cursor: pointer;
+}
+@media (max-width: 900px) {
+  .sidebar {
+    position: fixed;
+    left: 0;
+    top: 0;
+    height: 100vh;
+    z-index: 1100;
+    background: #1a1a1a;
+    transform: translateX(-100%);
+    transition: transform 0.3s;
+    width: 220px;
+    box-shadow: 2px 0 8px #0002;
+    display: block !important;
+  }
+  .sidebar.open {
+    transform: translateX(0);
+    display: block !important;
+  }
+  .main-content {
+    margin-left: 0 !important;
+  }
+  .menu-toggle {
+    display: block;
+  }
+  .app-container {
+    flex-direction: column;
+  }
+}
+@media (max-width: 600px) {
+  .sidebar {
+    width: 80vw;
+    min-width: 180px;
+  }
+}
+/* Make members table scrollable on small screens */
+@media (max-width: 900px) {
+    .table {
+        display: block;
+        width: 100%;
+        overflow-x: auto;
+        white-space: nowrap;
+        border-collapse: separate;
+        border-spacing: 0;
+    }
+    .table th, .table td {
+        min-width: 90px;
+        padding: 8px 6px;
+    }
+    .table .table-actions {
+        min-width: 140px;
+        white-space: nowrap;
+        position: sticky;
+        right: 0;
+        background: #1a1a1a;
+        z-index: 2;
+    }
+    .btn.btn-sm {
+        font-size: 13px;
+        padding: 6px 10px;
+        margin-bottom: 4px;
+        margin-right: 2px;
+    }
+}
     </style>
 </head>
 <body>
@@ -772,7 +875,6 @@
             
             <div class="landing-tabs">
                 <button class="landing-tab active" data-tab="info">Información</button>
-                <button class="landing-tab" data-tab="contact">Código QR</button>
                 <button class="landing-tab" data-tab="login">Iniciar Sesión</button>
 
             </div>
@@ -806,13 +908,7 @@
                 </div>
             </div>
 
-            <div id="contactTab" class="landing-tab-content">
-                <h3>Código QR</h3>
-                <div id="contactTabQRSection" style="margin-top:32px;">
-                    <div id="contactTabQRCode"></div>
-                    <div id="contactTabQRPrompt" style="margin-top:16px;"></div>
-                </div>
-            </div>
+
             
             <div id="loginTab" class="landing-tab-content">
                 <form id="loginForm">
@@ -837,6 +933,8 @@
 
     <!-- Main App -->
     <div id="mainApp" class="app-container hidden">
+        <!-- Hamburger menu button (moved here) -->
+        <button class="menu-toggle" id="menuToggleBtn" style="position:fixed;top:16px;left:16px;z-index:1100;">☰</button>
         <!-- Sidebar -->
         <aside class="sidebar">
             <div class="logo">
@@ -847,6 +945,7 @@
                 <ul class="nav-menu" id="navMenu">
                     <!-- Navigation items will be populated by JavaScript -->
                 </ul>
+                <div id="signOutContainer" style="position:absolute;left:0;right:0;bottom:0;padding:16px 0 12px 0;background:#1a1a1a;"></div>
             </nav>
         </aside>
 
@@ -856,7 +955,6 @@
                 <h1 class="page-title" id="pageTitle">Tablero</h1>
                 <div class="user-info">
                     <span id="userEmail"></span>
-                    <button id="signOutBtn" class="btn btn-secondary btn-sm">Cerrar Sesión</button>
                 </div>
             </header>
 
@@ -1254,6 +1352,32 @@
 
         // Initialize app
         document.addEventListener('DOMContentLoaded', function() {
+            // Hamburger menu toggle logic
+            const menuToggleBtn = document.getElementById('menuToggleBtn');
+            const sidebar = document.querySelector('.sidebar');
+            function toggleSidebar() {
+                sidebar.classList.toggle('open');
+            }
+            if (menuToggleBtn && sidebar) {
+                menuToggleBtn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    toggleSidebar();
+                });
+                // Close sidebar when clicking outside (on mobile)
+                document.addEventListener('click', function(e) {
+                    if (window.innerWidth <= 900 && sidebar.classList.contains('open')) {
+                        if (!sidebar.contains(e.target) && e.target !== menuToggleBtn) {
+                            sidebar.classList.remove('open');
+                        }
+                    }
+                });
+                // Optionally close sidebar when clicking a nav link (mobile)
+                sidebar.addEventListener('click', function(e) {
+                    if (window.innerWidth <= 900 && e.target.classList.contains('nav-link')) {
+                        sidebar.classList.remove('open');
+                    }
+                });
+            }
             // Manual ID attendance in QR modal
             document.getElementById('manualIdBtn').addEventListener('click', function() {
                 const id = document.getElementById('manualIdInput').value.trim();
@@ -1420,7 +1544,20 @@
                 registerModal.classList.add('show');
             });
 
-            document.getElementById('scanQRBtn')?.addEventListener('click', openQRScanner);
+            document.getElementById('scanQRBtn')?.addEventListener('click', function() {
+                // Detect if mobile (touch device or small screen)
+                const isMobile = window.matchMedia('(max-width: 900px)').matches || 'ontouchstart' in window;
+                if (isMobile) {
+                    openQRScanner();
+                } else {
+                    // On desktop, focus the manual ID input for USB QR code reader
+                    scannerModal.classList.add('show');
+                    setTimeout(() => {
+                        const manualInput = document.getElementById('manualIdInput');
+                        if (manualInput) manualInput.focus();
+                    }, 200);
+                }
+            });
             document.getElementById('closeScannerModal')?.addEventListener('click', closeQRScanner);
 
             // Edit modal
@@ -1618,7 +1755,7 @@
             const member = members.find(m => m.email === currentUser.email);
             if (!member) return;
 
-            document.getElementById('pageTitle').textContent = 'My Dashboard';
+            document.getElementById('pageTitle').textContent = 'Mi Tablero';
             document.getElementById('adminDashboard').classList.add('hidden');
             document.getElementById('memberDashboard').classList.remove('hidden');
             
@@ -1637,6 +1774,7 @@
             const navMenu = document.getElementById('navMenu');
             navMenu.innerHTML = '';
             
+
             items.forEach(item => {
                 const li = document.createElement('li');
                 li.className = 'nav-item';
@@ -1648,6 +1786,12 @@
                 `;
                 navMenu.appendChild(li);
             });
+            // Add Sign Out button at the very bottom of the sidebar (not scrollable)
+            const signOutContainer = document.getElementById('signOutContainer');
+            signOutContainer.innerHTML = `
+                <button id="signOutBtn" class="nav-link" style="color:#ef4444;gap:10px;width:100%;"><span class="nav-icon">🚪</span>Cerrar Sesión</button>
+            `;
+            document.getElementById('signOutBtn').addEventListener('click', signOut);
 
             // Only for member dashboard: handle tab switching
             if (document.getElementById('memberDashboard') && !document.getElementById('memberDashboard').classList.contains('hidden')) {
@@ -1922,7 +2066,7 @@
                     email: document.getElementById('editEmail').value,
                     dob: document.getElementById('editDob').value,
                     clothing: {
-                        pantalon: document.getElementById('editPantalon').value,
+                                               pantalon: document.getElementById('editPantalon').value,
                         camisa: document.getElementById('editCamisa').value
                     },
                     images: {
@@ -2032,7 +2176,7 @@
         window.editMember = editMember;
         window.markAttendance = markAttendance;
 
-        // Tab switching logic for 3 tabs
+        // Tab switching logic for 2 tabs (info, login)
         const landingTabs = document.querySelectorAll('.landing-tab');
         const landingTabContents = document.querySelectorAll('.landing-tab-content');
         landingTabs.forEach(tab => {
@@ -2043,56 +2187,12 @@
                 const tabName = tab.dataset.tab;
                 if(tabName === 'info') document.getElementById('gymInfo').classList.add('active');
                 if(tabName === 'login') document.getElementById('loginTab').classList.add('active');
-                if(tabName === 'contact') document.getElementById('contactTab').classList.add('active');
             });
         });
 
         // Set only info tab as active by default
-        ['gymInfo','loginTab','contactTab'].forEach(id => document.getElementById(id).classList.remove('active'));
-document.getElementById('gymInfo').classList.add('active');
-
-// Show member QR code in Contacto tab if logged in as member
-function showContactTabQRCode() {
-    const qrDiv = document.getElementById('contactTabQRCode');
-    const promptDiv = document.getElementById('contactTabQRPrompt');
-    qrDiv.innerHTML = '';
-    promptDiv.innerHTML = '';
-    let member = null;
-    if (currentUser && !currentUser.isAdmin) {
-        const members = JSON.parse(localStorage.getItem('gymMembers') || '[]');
-        member = members.find(m => m.id === currentUser.memberId || m.email === currentUser.email);
-    }
-    if (!member) {
-        // Not logged in, prompt for email
-        promptDiv.innerHTML = '<label for="qrEmailInput">Ingresa tu correo para ver tu QR:</label><input id="qrEmailInput" type="email" style="margin-left:8px; padding:4px; border-radius:4px; border:1px solid #ccc; width: 220px;"> <button id="qrEmailBtn" class="btn btn-primary btn-sm">Mostrar QR</button><div id="qrEmailError" style="color:#ef4444; margin-top:8px;"></div>';
-        document.getElementById('qrEmailBtn').onclick = function() {
-            const email = document.getElementById('qrEmailInput').value.trim();
-            const members = JSON.parse(localStorage.getItem('gymMembers') || '[]');
-            const found = members.find(m => m.email === email);
-            qrDiv.innerHTML = '';
-            document.getElementById('qrEmailError').textContent = '';
-            if (found && found.qrCode) {
-                const canvas = document.createElement('canvas');
-                qrDiv.appendChild(canvas);
-                QRCode.toCanvas(canvas, found.qrCode, { width: 200 }, function (error) {
-                    if (error) console.error(error);
-                });
-            } else {
-                document.getElementById('qrEmailError').textContent = 'Correo no encontrado.';
-            }
-        };
-    } else if (member.qrCode) {
-        const canvas = document.createElement('canvas');
-        qrDiv.appendChild(canvas);
-        QRCode.toCanvas(canvas, member.qrCode, { width: 200 }, function (error) {
-            if (error) console.error(error);
-        });
-    }
-}
-const contactTabBtn = document.querySelector('.landing-tab[data-tab="contact"]');
-if (contactTabBtn) {
-    contactTabBtn.addEventListener('click', showContactTabQRCode);
-}
+        ['gymInfo','loginTab'].forEach(id => document.getElementById(id).classList.remove('active'));
+        document.getElementById('gymInfo').classList.add('active');
     </script>
 </body>
 </html>
