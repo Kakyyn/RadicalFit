@@ -1,7 +1,7 @@
 {
-  "name": "FitGym",
-  "short_name": "FitGym",
-  "start_url": "/index2.html",
+  "name": "Radical Fit",
+  "short_name": "Radical Fit",
+  "start_url": "/index.html",
   "display": "standalone",
   "background_color": "#121212",
   "theme_color": "#6366f1",
@@ -13,3 +13,4 @@
     }
   ]
 }
+
