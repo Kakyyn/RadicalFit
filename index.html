@@ -6,8 +6,10 @@
     <link rel="apple-touch-icon" sizes="180x180" href="https://raw.githubusercontent.com/Kakyyn/RadicalFit/5e7e4575e3f7dab9ac0cf03d74d527b9cb3d1c07/logo180.png">
     <link rel="icon" type="image/png" sizes="180x180" href="https://raw.githubusercontent.com/Kakyyn/RadicalFit/5e7e4575e3f7dab9ac0cf03d74d527b9cb3d1c07/logo180.png">
     <link rel="stylesheet" href="main.css">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FitGym - Member Management</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>Radical Fit</title>
     <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.1/build/qrcode.min.js"></script>
     <script src="https://unpkg.com/html5-qrcode@2.3.7/minified/html5-qrcode.min.js"></script>
 </head>
@@ -130,7 +132,7 @@
                     <div class="card-header">
                         <h3 class="card-title">Tu Código QR</h3>
                     </div>
-                    <div class="qr-container" id="memberQRCode"></div>
+                    <div class="qr-container" id="memberProfileQR"></div>
                     <div id="weighinReminder" style="display:none; margin: 18px 0 0 0;"></div>
                     <p style="text-align: center; color: #9ca3af;">Muestra este código QR para la asistencia</p>
                 </div>
@@ -139,7 +141,13 @@
                     <div class="card-header">
                         <h3 class="card-title">Información Personal</h3>
                     </div>
-                    <div id="memberProfile"></div>
+                    <div id="memberProfile">
+                        <div><strong>Nombre:</strong> <span id="memberProfileName"></span></div>
+                        <div><strong>Email:</strong> <span id="memberProfileEmail"></span></div>
+                        <div><strong>Teléfono:</strong> <span id="memberProfilePhone"></span></div>
+                        <div><strong>Fecha de Nacimiento:</strong> <span id="memberProfileDob"></span></div>
+                        <div><strong>Peso:</strong> <span id="memberProfileWeight"></span></div>
+                    </div>
                     <div class="member-images" id="memberImages">
                         <div class="image-card">
                             <h4>Antes</h4>
@@ -156,7 +164,14 @@
                     <div class="card-header">
                         <h3 class="card-title">Mediciones Corporales</h3>
                     </div>
-                    <div id="memberMeasurements"></div>
+                    <div id="memberMeasurements">
+                        <div><strong>Abdomen:</strong> <span id="memberProfileAbdomen"></span></div>
+                        <div><strong>Cintura:</strong> <span id="memberProfileCintura"></span></div>
+                        <div><strong>Cadera:</strong> <span id="memberProfileCadera"></span></div>
+                        <div><strong>Pierna:</strong> <span id="memberProfilePierna"></span></div>
+                        <div><strong>Brazo:</strong> <span id="memberProfileBrazo"></span></div>
+                        <div><strong>Espalda:</strong> <span id="memberProfileEspalda"></span></div>
+                    </div>
                 </div>
 
                 <div id="progressTab" class="card hidden">

@@ -360,6 +360,11 @@ function setupNavigation(items) {
                     tab.classList.add('active');
                     const tabName = tab.dataset.tab;
                     document.getElementById(tabName + 'Tab').classList.remove('hidden');
+                    // Re-render member data when switching tabs to ensure QR and info are updated
+                    if (typeof renderMemberData === 'function' && currentUser) {
+                        const member = members.find(m => m.email === currentUser.email);
+                        if (member) renderMemberData(member);
+                    }
                 });
             });
 
@@ -860,7 +865,11 @@ document.addEventListener('DOMContentLoaded', function() {
             document.getElementById('pageTitle').textContent = 'Mi Tablero';
             document.getElementById('adminDashboard').classList.add('hidden');
             document.getElementById('memberDashboard').classList.remove('hidden');
-            
+
+            // Show QR tab by default
+            document.querySelectorAll('#memberDashboard .card').forEach(c => c.classList.add('hidden'));
+            document.getElementById('qrTab').classList.remove('hidden');
+
             setupNavigation([
                 { name: 'QR', icon: '�', tab: 'qr', active: true },
                 { name: 'Perfil', icon: '👤', tab: 'profile' },
@@ -875,6 +884,50 @@ document.addEventListener('DOMContentLoaded', function() {
         // =====================
         // UTILITY & HELPER FUNCTIONS
         // =====================
+
+        // Render member dashboard data (profile, QR, measurements, etc)
+        function renderMemberData(member) {
+            // Member ID
+            const memberIdEl = document.getElementById('memberId');
+            if (memberIdEl) memberIdEl.textContent = member.id;
+            // Profile Info
+            document.getElementById('memberProfileName').textContent = member.name;
+            document.getElementById('memberProfileEmail').textContent = member.email;
+            document.getElementById('memberProfilePhone').textContent = member.phone;
+            document.getElementById('memberProfileDob').textContent = member.dob;
+            // Weight
+            document.getElementById('memberProfileWeight').textContent = member.weight + ' kg';
+            // Measurements
+            document.getElementById('memberProfileAbdomen').textContent = member.measurements.abdomen + ' cm';
+            document.getElementById('memberProfileCintura').textContent = member.measurements.cintura + ' cm';
+            document.getElementById('memberProfileCadera').textContent = member.measurements.cadera + ' cm';
+            document.getElementById('memberProfilePierna').textContent = member.measurements.pierna + ' cm';
+            document.getElementById('memberProfileBrazo').textContent = member.measurements.brazo + ' cm';
+            document.getElementById('memberProfileEspalda').textContent = member.measurements.espalda + ' cm';
+            // QR Code
+            const qrDiv = document.getElementById('memberProfileQR');
+            if (qrDiv) qrDiv.innerHTML = '';
+            if (window.QRCode && qrDiv) {
+                // Remove previous QR code
+                qrDiv.innerHTML = '';
+                // Create a canvas for the QR code
+                const canvas = document.createElement('canvas');
+                qrDiv.appendChild(canvas);
+                window.QRCode.toCanvas(canvas, member.id, { width: 128, height: 128 }, function (error) {
+                    if (error) {
+                        qrDiv.innerHTML = '<span style="color:#ef4444">Error generando QR</span>';
+                        console.error(error);
+                    }
+                });
+            } else if (!window.QRCode) {
+                if (qrDiv) qrDiv.innerHTML = '<span style="color:#ef4444">Error: QRCode library not loaded</span>';
+                console.error('QRCode library is not loaded.');
+            }
+            // Attendance count
+            const attendanceCountEl = document.getElementById('attendanceCount');
+            if (attendanceCountEl) attendanceCountEl.textContent = Array.isArray(member.attendance) ? member.attendance.length : 0;
+        }
+
         // Show plan info modal
         function showPlanModal(plan) {
             const modal = document.getElementById('planInfoModal');
@@ -1256,7 +1309,28 @@ function renderMembersTable() {
 }
 
 function updateAdminStats() {
-    // TODO: Update admin dashboard stats (total members, check-ins, etc)
+    // Update admin dashboard stats (total members, check-ins, etc)
+    const totalMembersEl = document.getElementById('totalMembers');
+    const todayCheckinsEl = document.getElementById('todayCheckins');
+    const monthlyCheckinsEl = document.getElementById('monthlyCheckins');
+    if (!totalMembersEl || !todayCheckinsEl || !monthlyCheckinsEl) return;
+
+    // Total members
+    totalMembersEl.textContent = members.length;
+
+    // Today's check-ins
+    const today = new Date();
+    const todayStr = today.toISOString().slice(0, 10);
+    let todayCount = 0;
+    let monthCount = 0;
+    members.forEach(m => {
+        if (Array.isArray(m.attendance)) {
+            todayCount += m.attendance.filter(a => a.slice(0, 10) === todayStr).length;
+            monthCount += m.attendance.filter(a => a.slice(0, 7) === todayStr.slice(0, 7)).length;
+        }
+    });
+    todayCheckinsEl.textContent = todayCount;
+    monthlyCheckinsEl.textContent = monthCount;
 }
 
 function openPurchaseModal() {
@@ -1359,10 +1433,77 @@ function signOut() {
     location.reload();
 }
 
+
+// QR Scanner logic for mobile
+let qrScannerInstance = null;
 function openQRScanner() {
-    // TODO: Open the QR scanner modal and start scanning
+    const scannerModal = document.getElementById('scannerModal');
+    if (scannerModal) scannerModal.classList.add('show');
+    const qrReader = document.getElementById('qr-reader');
+    if (!qrReader) return;
+    // Clean up previous instance if any
+    if (qrScannerInstance) {
+        qrScannerInstance.clear().catch(() => {});
+        qrScannerInstance = null;
+        qrReader.innerHTML = '';
+    }
+    // Use html5-qrcode for mobile scanning
+    qrScannerInstance = new Html5Qrcode('qr-reader');
+    qrScannerInstance.start(
+        { facingMode: 'environment' },
+        {
+            fps: 10,
+            qrbox: { width: 250, height: 250 }
+        },
+        (decodedText, decodedResult) => {
+            // On successful scan
+            handleQRScan(decodedText);
+            closeQRScanner();
+        },
+        (errorMessage) => {
+            // Optionally handle scan errors
+        }
+    ).catch(err => {
+        document.getElementById('scanResult').textContent = 'No se pudo iniciar la cámara: ' + err;
+    });
 }
 
 function closeQRScanner() {
-    // TODO: Close the QR scanner modal and stop scanning
+    const qrReader = document.getElementById('qr-reader');
+    if (qrScannerInstance) {
+        qrScannerInstance.stop().then(() => {
+            qrScannerInstance.clear();
+            qrScannerInstance = null;
+            if (qrReader) qrReader.innerHTML = '';
+        }).catch(() => {});
+    } else if (qrReader) {
+        qrReader.innerHTML = '';
+    }
+    const scannerModal = document.getElementById('scannerModal');
+    if (scannerModal) scannerModal.classList.remove('show');
+}
+
+// Handle QR scan result
+function handleQRScan(decodedText) {
+    // Try to find member by scanned ID
+    const member = members.find(m => m.id === decodedText);
+    const scanResult = document.getElementById('scanResult');
+    if (member) {
+        // Add attendance
+        if (!member.attendance) member.attendance = [];
+        member.attendance.push(new Date().toISOString());
+        localStorage.setItem('gymMembers', JSON.stringify(members));
+        if (scanResult) scanResult.textContent = `✅ Asistencia agregada para ${member.name}`;
+        // If the current user is the scanned member, update their dashboard
+        if (currentUser && currentUser.email === member.email && typeof renderMemberData === 'function') {
+            renderMemberData(member);
+            // Also force QR code re-render in case QR tab is visible
+            const qrTab = document.getElementById('qrTab');
+            if (qrTab && !qrTab.classList.contains('hidden')) {
+                setTimeout(() => renderMemberData(member), 100);
+            }
+        }
+    } else {
+        if (scanResult) scanResult.textContent = '❌ Miembro no encontrado';
+    }
 }
