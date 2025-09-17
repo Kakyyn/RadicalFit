@@ -1,3 +1,25 @@
+html, body {
+    height: 100%;
+    min-height: 100vh;
+    width: 100vw;
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    /* For iPhone X and up, use safe area insets */
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+    background: #18181b;
+}
+
+#mainApp, #landingPage {
+    min-height: 100vh;
+    min-height: 100dvh;
+    width: 100vw;
+    box-sizing: border-box;
+    padding-bottom: env(safe-area-inset-bottom);
+}
 /* Highlight checked and disabled checkboxes for better visibility in view mode */
 #editForm input[type="checkbox"][disabled]:checked {
     outline: 2px solid #ffd600;
