@@ -1007,6 +1007,13 @@ document.addEventListener('DOMContentLoaded', function() {
 
             // Create new member
             const newId = generateId();
+
+// =====================
+// Utility: Generate unique member ID
+function generateId() {
+    // Use current timestamp and a random number for uniqueness
+    return 'M' + Date.now().toString(36) + Math.floor(Math.random() * 1000).toString(36);
+}
             const member = {
                 id: newId,
                 name: document.getElementById('regName').value,
