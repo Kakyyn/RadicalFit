@@ -18,6 +18,7 @@ html, body {
     min-height: 100dvh;
     width: 100vw;
     box-sizing: border-box;
+    padding-top: env(safe-area-inset-top);
     padding-bottom: env(safe-area-inset-bottom);
 }
 /* Highlight checked and disabled checkboxes for better visibility in view mode */
