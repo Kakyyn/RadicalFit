@@ -1,3 +1,18 @@
+/* Elegant modal subtitle styling */
+.modal-subtitle {
+    font-size: 1.12em;
+    color: #222;
+    font-weight: 600;
+    margin-top: 4px;
+    margin-bottom: 14px;
+    letter-spacing: 0.01em;
+    padding: 8px 12px;
+    border-left: 4px solid #FFD600;
+    background: #fffbe6;
+    border-radius: 4px;
+    box-shadow: 0 2px 8px 0 rgba(255,214,0,0.10);
+    display: block;
+}
 /* Highlight checked and disabled checkboxes for better visibility in view mode */
 #editForm input[type="checkbox"][disabled]:checked {
     outline: 2px solid #ffd600;

@@ -933,30 +933,81 @@ document.addEventListener('DOMContentLoaded', function() {
             const modal = document.getElementById('planInfoModal');
             const title = document.getElementById('planModalTitle');
             const body = document.getElementById('planModalBody');
+            // Add or get subtitle element, always place directly after title
+            let subtitle = document.getElementById('planModalSubtitle');
+            if (!subtitle) {
+                subtitle = document.createElement('div');
+                subtitle.id = 'planModalSubtitle';
+                subtitle.className = 'modal-subtitle';
+            }
+            // Always move subtitle right after title
+            if (title.nextSibling !== subtitle) {
+                title.parentNode.insertBefore(subtitle, title.nextSibling);
+            }
             let planTitle = '';
             let planDesc = '';
+            let planSubtitle = '';
             switch(plan) {
                 case 'nitro':
                     planTitle = 'Nitro';
-                    planDesc = `<p>Acceso completo al gimnasio en horario regular. Ideal para quienes buscan un entrenamiento eficiente y constante.</p>`;
+                    planSubtitle = '';
+                    planDesc = `
+                    <p><b>NITRO</b> Es totalmente natural y se usan diferentes líneas de suplementos de micro y macro nutrientes en cada programa, todos regulados por el ministerio de salud.</p>
+                    <p>El propósito de nitro es optimizar el funcionamiento de los órganos viscerales descuidados con el tiempo por mala alimentación, comida chatarra, azúcar o simplemente dejar de comer.<br><i>Nitro promueve su funcionamiento y formen parte de la absorción de nutrientes de la comida regular para acelerar la pérdida de tallas y grasa sin flacidez.</i></p>
+                    <ul>
+                    <li><b>NO</b> es purgante, <b>NO</b> es un <b>DETOX</b>, ni tampoco un té quemador de grasa. El MÉTODO no usa productos de esa índole.</li>
+                    <li>👉 No contiene leche ni gluten.</li>
+                    </ul>
+                    <p>Es posible que al promover su funcionamiento en los órganos viscerales, experimentes lo siguiente:</p>
+                    <ul>
+                    <li>👉 Orinar más de lo normal.</li>
+                    <li>👉 Mejores deposiciones del cuerpo, incluso podría promover la corrección de estreñimiento (no crónico).</li>
+                    <li>👉 Más energía.</li>
+                    <li>👉 Podría promover la corrección de gastritis.</li>
+                    </ul>
+                    <p>👉 También podría pasar que sientas retorcijones, agruras, sensación de estreñimiento, lo cual sería normal cuando hacemos un cambio significativo en nuestra alimentación y más cuando los órganos viscerales entran en funcionamiento luego de una mala alimentación.</p>
+                    <p>En caso contrario me avisas para hacer algún ajuste.</p>
+                    <p>Si tienes que ir a cita de chequeo me avisas para enviarte toda la posología (lista de micro y macros que se usan en el programa) para que tu médico lo vea.</p>
+                    `;
                     break;
                 case 'zero':
-                    planTitle = 'Zero';
-                    planDesc = `<p>Incluye todos los beneficios de Nitro, más acceso a clases grupales y zonas exclusivas. Perfecto para quienes buscan variedad y motivación extra.</p>`;
-                    break;
+                            planTitle = 'TONIFIQUE BODY CLEAN';
+                            planSubtitle = '';
+                            planDesc = `
+                            <p><b> Es un complemento de su programa regular.</b><br>
+                            Body clean refuerza su sistema muscular para provocar oxidación de grasa sub cutánea.</p>
+                            <p>(Promueve la eliminación de grasa en abdomen, piernas y reduce celulitis y varices)<br>
+                            Además promueve las deposiciones normales del cuerpo.</p>
+                            <h4>¿Cómo usarlo?</h4>
+                            <p>Siempre hay una comida que nos saltamos, ya sea por tiempo, falta de apetito o incluso una donde comemos muy mal.<br>
+                            Ahí en lugar de saltarse esa comida la sustituye por body clean. La puede preparar en forma sólida o líquida con frutas o una bebida sencilla como un fresco.</p>
+                            <p><b>Notará resultados desde las primeras semanas.</b></p>
+                            `;
+                break;
                 case 'tnt':
-                    planTitle = 'TNT';
-                    planDesc = `<p>Plan intensivo con rutinas avanzadas, asesoría personalizada y seguimiento de progreso. Para quienes quieren llevar su entrenamiento al siguiente nivel.</p>`;
-                    break;
+                            planTitle = 'After Party';
+                            planSubtitle = '';
+                            planDesc = `
+                            <p><b> Si en algún momento siente que se excedió en comida o alcohol</b>, tranquis, nos pasa a todos, es un proceso.<br></p>
+                            <p>Puede tomar<b> After Party</b>, es una Bebida del MÉTODO que nos ayuda a eliminar los residuos de azúcar, químicos de la comida chatarra, exceso de todo para que no se transforme en grasa en nuestro cuerpo.</p>
+                            <p>Si toma alcohol (cerveza, trago, cócteles, vino, etc) nuestro cuerpo trata de eliminarlo en forma de energía, dejando la comida saludable o no para transformarla en grasa de reserva pues no la puede usar. 
+                            <b> After Party</b> capta los residuos de alcohol de la sangre, venas, arterias, hígado etc, optimizando su funcionamiento para que su cuerpo se estabilice.</p>
+                            <p><b>Cambiar hábitos no es fácil, por ello after nos ayuda en el proceso, si se porta mal, no deje nada dentro.</b></p>
+                            `;                    
+                            break;
                 case 'gainer':
                     planTitle = 'Gainer';
+                    planSubtitle = '';
                     planDesc = `<p>Enfoque especial en aumento de masa muscular, incluye asesoría nutricional y rutinas especializadas. Ideal para transformación física.</p>`;
                     break;
                 default:
                     planTitle = 'Información del Plan';
+                    planSubtitle = '';
                     planDesc = '';
             }
             title.textContent = planTitle;
+            subtitle.textContent = planSubtitle;
+            subtitle.style.display = planSubtitle ? 'block' : 'none';
             body.innerHTML = planDesc;
             modal.classList.add('show');
         }
