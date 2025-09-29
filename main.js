@@ -175,11 +175,9 @@ function setupNavigation(items) {
                     espalda: parseFloat(document.getElementById('measurementEspalda').value)
                 };
                 // Initialize history if not present
-                if (!member.measurementHistory) member.measurementHistory = [];
+                if (!Array.isArray(member.measurementHistory)) member.measurementHistory = [];
                 member.measurementHistory.push(entry);
-                // Reset attendance and highlight after new measurement
-                member.attendance = [];
-                // Do NOT update member.weight or member.measurements (keep registration values static)
+                // Save to localStorage
                 localStorage.setItem('gymMembers', JSON.stringify(members));
                 document.getElementById('measurementSuccess').textContent = 'Medición guardada exitosamente.';
                 setTimeout(() => {
@@ -187,21 +185,6 @@ function setupNavigation(items) {
                     // If the member is viewing their dashboard, refresh it
                     if (currentUser && !currentUser.isAdmin && currentUser.memberId === memberId) {
                         renderMemberData(member);
-            // Show weigh-in reminder if 4 or more attendances (in QR tab)
-            const reminder = document.getElementById('weighinReminder');
-            if (member.attendance && member.attendance.length >= 4) {
-                reminder.textContent = '¡Es momento de registrar tu peso y mediciones! Por favor, acude con el administrador.';
-                reminder.style.display = 'block';
-                reminder.style.padding = '16px';
-                reminder.style.background = '#fff3cd';
-                reminder.style.color = '#856404';
-                reminder.style.borderRadius = '16px';
-                reminder.style.textAlign = 'center';
-                reminder.style.fontWeight = 'bold';
-                reminder.style.fontSize = '1.1em';
-            } else {
-                reminder.style.display = 'none';
-            }
                     }
                     // If admin, refresh table
                     if (currentUser && currentUser.isAdmin) {
@@ -356,13 +339,12 @@ function setupNavigation(items) {
                 tab.addEventListener('click', () => {
                     document.querySelectorAll('.member-dashboard-tab').forEach(t => t.classList.remove('active'));
                     document.querySelectorAll('#memberDashboard .card').forEach(c => c.classList.add('hidden'));
-                    
                     tab.classList.add('active');
                     const tabName = tab.dataset.tab;
                     document.getElementById(tabName + 'Tab').classList.remove('hidden');
-                    // Re-render member data when switching tabs to ensure QR and info are updated
-                    if (typeof renderMemberData === 'function' && currentUser) {
-                        const member = members.find(m => m.email === currentUser.email);
+                    // Always re-render member data with correct memberId (not just email)
+                    if (typeof renderMemberData === 'function' && currentUser && currentUser.memberId) {
+                        const member = members.find(m => m.id === currentUser.memberId);
                         if (member) renderMemberData(member);
                     }
                 });
@@ -859,26 +841,27 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // Show member dashboard
         function showMemberDashboard() {
-            const member = members.find(m => m.email === currentUser.email);
-            if (!member) return;
+    const member = members.find(m => m.id === currentUser.memberId);
+    if (!member) return;
 
-            document.getElementById('pageTitle').textContent = 'Mi Tablero';
-            document.getElementById('adminDashboard').classList.add('hidden');
-            document.getElementById('memberDashboard').classList.remove('hidden');
+    document.getElementById('pageTitle').textContent = 'Mi Tablero';
+    document.getElementById('adminDashboard').classList.add('hidden');
+    document.getElementById('memberDashboard').classList.remove('hidden');
 
-            // Show QR tab by default
-            document.querySelectorAll('#memberDashboard .card').forEach(c => c.classList.add('hidden'));
-            document.getElementById('qrTab').classList.remove('hidden');
+    // Show QR tab by default
+    document.querySelectorAll('#memberDashboard .card').forEach(c => c.classList.add('hidden'));
+    document.getElementById('qrTab').classList.remove('hidden');
 
-            setupNavigation([
-                { name: 'QR', icon: '�', tab: 'qr', active: true },
-                { name: 'Perfil', icon: '👤', tab: 'profile' },
-                { name: 'Mediciones', icon: '�', tab: 'measurements' },
-                { name: 'Progreso', icon: '📈', tab: 'progress' }
-            ]);
-            // Ensure sign out button works after navigation render
-            setTimeout(attachSignOutListener, 0);
-            renderMemberData(member);
+    setupNavigation([
+        { name: 'QR', icon: '�', tab: 'qr', active: true },
+        { name: 'Perfil', icon: '👤', tab: 'profile' },
+        { name: 'Mediciones', icon: '�', tab: 'measurements' },
+        { name: 'Progreso', icon: '📈', tab: 'progress' }
+    ]);
+    // Ensure sign out button works after navigation render
+    setTimeout(attachSignOutListener, 0);
+    // Always render member data with correct memberId
+    renderMemberData(member);
         }
 
         // =====================
@@ -887,23 +870,107 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // Render member dashboard data (profile, QR, measurements, etc)
         function renderMemberData(member) {
-            // Member ID
-            const memberIdEl = document.getElementById('memberId');
-            if (memberIdEl) memberIdEl.textContent = member.id;
-            // Profile Info
-            document.getElementById('memberProfileName').textContent = member.name;
-            document.getElementById('memberProfileEmail').textContent = member.email;
-            document.getElementById('memberProfilePhone').textContent = member.phone;
-            document.getElementById('memberProfileDob').textContent = member.dob;
-            // Weight
-            document.getElementById('memberProfileWeight').textContent = member.weight + ' kg';
-            // Measurements
-            document.getElementById('memberProfileAbdomen').textContent = member.measurements.abdomen + ' cm';
-            document.getElementById('memberProfileCintura').textContent = member.measurements.cintura + ' cm';
-            document.getElementById('memberProfileCadera').textContent = member.measurements.cadera + ' cm';
-            document.getElementById('memberProfilePierna').textContent = member.measurements.pierna + ' cm';
-            document.getElementById('memberProfileBrazo').textContent = member.measurements.brazo + ' cm';
-            document.getElementById('memberProfileEspalda').textContent = member.measurements.espalda + ' cm';
+
+    // Member ID
+    const memberIdEl = document.getElementById('memberId');
+    if (memberIdEl) memberIdEl.textContent = member.id;
+    // Profile Info
+    document.getElementById('memberProfileName').textContent = member.name;
+    document.getElementById('memberProfileEmail').textContent = member.email;
+    document.getElementById('memberProfilePhone').textContent = member.phone;
+    document.getElementById('memberProfileDob').textContent = member.dob;
+    // Helper to show value or dash
+    function showVal(val, unit) {
+        if (typeof val === 'number' && !isNaN(val)) return val + ' ' + unit;
+        if (typeof val === 'string' && val !== '' && !isNaN(Number(val))) return Number(val) + ' ' + unit;
+        if (val === 0) return '0 ' + unit;
+        return '-';
+    }
+
+    // Defensive: measurements may be undefined/null, fallback to 0 if missing
+    const ms = member.measurements || {};
+    function safeNum(val) {
+        if (typeof val === 'number' && !isNaN(val)) return val;
+        if (typeof val === 'string' && val !== '' && !isNaN(Number(val))) return Number(val);
+        return 0;
+    }
+
+    const elProfileWeight = document.getElementById('memberProfileWeight');
+    if (elProfileWeight) elProfileWeight.textContent = showVal(safeNum(member.weight), 'kg');
+    const elProfileAbdomen = document.getElementById('memberProfileAbdomen');
+    if (elProfileAbdomen) elProfileAbdomen.textContent = showVal(safeNum(ms.abdomen), 'cm');
+    const elProfileCintura = document.getElementById('memberProfileCintura');
+    if (elProfileCintura) elProfileCintura.textContent = showVal(safeNum(ms.cintura), 'cm');
+    const elProfileCadera = document.getElementById('memberProfileCadera');
+    if (elProfileCadera) elProfileCadera.textContent = showVal(safeNum(ms.cadera), 'cm');
+    const elProfilePierna = document.getElementById('memberProfilePierna');
+    if (elProfilePierna) elProfilePierna.textContent = showVal(safeNum(ms.pierna), 'cm');
+    const elProfileBrazo = document.getElementById('memberProfileBrazo');
+    if (elProfileBrazo) elProfileBrazo.textContent = showVal(safeNum(ms.brazo), 'cm');
+    const elProfileEspalda = document.getElementById('memberProfileEspalda');
+    if (elProfileEspalda) elProfileEspalda.textContent = showVal(safeNum(ms.espalda), 'cm');
+
+    // --- Mediciones Tab: Original Data ---
+    const orig = member.measurements || {};
+    // Registration date
+    const regDateEl = document.getElementById('memberRegistrationDate');
+    if (regDateEl) {
+        let regDate = member.registrationDate ? new Date(member.registrationDate) : null;
+        regDateEl.textContent = (regDate && !isNaN(regDate)) ? regDate.toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric' }) : '-';
+    }
+    const elOrigWeight = document.getElementById('memberOriginalWeight');
+    if (elOrigWeight) elOrigWeight.textContent = showVal(safeNum(member.weight), 'kg');
+    const elOrigAbdomen = document.getElementById('memberOriginalAbdomen');
+    if (elOrigAbdomen) elOrigAbdomen.textContent = showVal(safeNum(orig.abdomen), 'cm');
+    const elOrigCintura = document.getElementById('memberOriginalCintura');
+    if (elOrigCintura) elOrigCintura.textContent = showVal(safeNum(orig.cintura), 'cm');
+    const elOrigCadera = document.getElementById('memberOriginalCadera');
+    if (elOrigCadera) elOrigCadera.textContent = showVal(safeNum(orig.cadera), 'cm');
+    const elOrigPierna = document.getElementById('memberOriginalPierna');
+    if (elOrigPierna) elOrigPierna.textContent = showVal(safeNum(orig.pierna), 'cm');
+    const elOrigBrazo = document.getElementById('memberOriginalBrazo');
+    if (elOrigBrazo) elOrigBrazo.textContent = showVal(safeNum(orig.brazo), 'cm');
+    const elOrigEspalda = document.getElementById('memberOriginalEspalda');
+    if (elOrigEspalda) elOrigEspalda.textContent = showVal(safeNum(orig.espalda), 'cm');
+
+    // --- Mediciones Tab: Measurement History ---
+    const histDiv = document.getElementById('measurementHistory');
+    let history = Array.isArray(member.measurementHistory) ? member.measurementHistory : [];
+    if (histDiv) {
+        if (!history.length) {
+            histDiv.innerHTML = '<p style="color:#aaa;text-align:center;padding:20px;">No hay mediciones adicionales registradas</p>';
+        } else {
+            histDiv.innerHTML = history.map(entry => {
+                const d = new Date(entry.date);
+                const dateStr = d.toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric' });
+                // Use 0 if value is 0, otherwise fallback to '-'
+                function showVal(val, unit) {
+                    return (typeof val === 'number' && !isNaN(val)) ? val + ' ' + unit : '-';
+                }
+                return `<div style="background:#232323;padding:12px 16px;margin-bottom:12px;border-radius:7px;border-left:3px solid #FFD600;">
+                    <div style="color:#FFD600;font-weight:600;margin-bottom:4px;">${dateStr}</div>
+                    <div><strong>Peso:</strong> ${showVal(entry.weight, 'kg')}</div>
+                    <div><strong>Abdomen:</strong> ${showVal(entry.abdomen, 'cm')}</div>
+                    <div><strong>Cintura:</strong> ${showVal(entry.cintura, 'cm')}</div>
+                    <div><strong>Cadera:</strong> ${showVal(entry.cadera, 'cm')}</div>
+                    <div><strong>Pierna:</strong> ${showVal(entry.pierna, 'cm')}</div>
+                    <div><strong>Brazo:</strong> ${showVal(entry.brazo, 'cm')}</div>
+                    <div><strong>Espalda:</strong> ${showVal(entry.espalda, 'cm')}</div>
+                </div>`;
+            }).join('');
+        }
+    }
+    // Show latest measurement in stat card (if any)
+    const memberMeasurementMessage = document.getElementById('memberMeasurementMessage');
+    if (memberMeasurementMessage) {
+        if (history.length) {
+            const latest = history[history.length - 1];
+            const d = new Date(latest.date);
+            memberMeasurementMessage.textContent = `Última: ${d.toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric' })} - ${latest.weight || '-'} kg`;
+        } else {
+            memberMeasurementMessage.textContent = 'Sin mediciones nuevas';
+        }
+    }
             // QR Code
             const qrDiv = document.getElementById('memberProfileQR');
             if (qrDiv) qrDiv.innerHTML = '';
@@ -1198,6 +1265,24 @@ function generateId() {
         // =====================
 
 // ===== MISSING FUNCTION STUBS (add real logic as needed) =====
+// Delete member function (admin only)
+function deleteMember() {
+    const memberId = document.getElementById('editMemberId').value;
+    if (!memberId) return;
+    if (!confirm('¿Estás seguro de que deseas eliminar este miembro? Esta acción no se puede deshacer.')) return;
+    const idx = members.findIndex(m => m.id === memberId);
+    if (idx === -1) return;
+    members.splice(idx, 1);
+    localStorage.setItem('gymMembers', JSON.stringify(members));
+    // Close the edit modal
+    const editModal = document.getElementById('editModal');
+    if (editModal) editModal.classList.remove('show');
+    // Refresh admin table and stats
+    if (typeof renderMembersTable === 'function') renderMembersTable();
+    if (typeof updateAdminStats === 'function') updateAdminStats();
+    // Optionally show a success message
+    alert('Miembro eliminado exitosamente.');
+}
 // View member details in modal (view-only mode)
 function viewMember(memberId) {
     const member = members.find(m => m.id === memberId);

@@ -164,13 +164,28 @@
                     <div class="card-header">
                         <h3 class="card-title">Mediciones Corporales</h3>
                     </div>
-                    <div id="memberMeasurements">
-                        <div><strong>Abdomen:</strong> <span id="memberProfileAbdomen"></span></div>
-                        <div><strong>Cintura:</strong> <span id="memberProfileCintura"></span></div>
-                        <div><strong>Cadera:</strong> <span id="memberProfileCadera"></span></div>
-                        <div><strong>Pierna:</strong> <span id="memberProfilePierna"></span></div>
-                        <div><strong>Brazo:</strong> <span id="memberProfileBrazo"></span></div>
-                        <div><strong>Espalda:</strong> <span id="memberProfileEspalda"></span></div>
+                    
+                    <!-- Original Measurements (Registration Data) -->
+                    <div style="margin-bottom: 20px;">
+                        <h4 style="color: #FFD600; margin-bottom: 10px;">📏 Mediciones Iniciales (Registro)</h4>
+                        <div id="originalMeasurements" style="background: #2a2a2a; padding: 15px; border-radius: 8px; border-left: 4px solid #FFD600;">
+                            <div><strong>Fecha de Registro:</strong> <span id="memberRegistrationDate"></span></div>
+                            <div><strong>Peso:</strong> <span id="memberOriginalWeight"></span></div>
+                            <div><strong>Abdomen:</strong> <span id="memberOriginalAbdomen"></span></div>
+                            <div><strong>Cintura:</strong> <span id="memberOriginalCintura"></span></div>
+                            <div><strong>Cadera:</strong> <span id="memberOriginalCadera"></span></div>
+                            <div><strong>Pierna:</strong> <span id="memberOriginalPierna"></span></div>
+                            <div><strong>Brazo:</strong> <span id="memberOriginalBrazo"></span></div>
+                            <div><strong>Espalda:</strong> <span id="memberOriginalEspalda"></span></div>
+                        </div>
+                    </div>
+
+                    <!-- Measurement History -->
+                    <div>
+                        <h4 style="color: #FFD600; margin-bottom: 10px;">📊 Historial de Mediciones</h4>
+                        <div id="measurementHistory" style="max-height: 400px; overflow-y: auto;">
+                            <p style="color: #aaa; text-align: center; padding: 20px;">No hay mediciones adicionales registradas</p>
+                        </div>
                     </div>
                 </div>
 
