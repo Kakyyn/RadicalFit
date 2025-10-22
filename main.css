@@ -140,9 +140,31 @@
             padding: 16px 0;
         }
 
-        /* Landing/logo image sizing helpers */
-        .logo-landing-img { width:346px; height:160px; border-radius:28px; display:block; margin:0 auto 18px; }
-        .sidebar-logo-img { width:240px; height:100px; object-fit:contain; display:block; }
+        /* Landing/logo image sizing helpers (responsive) */
+        .logo-landing-img {
+            display: block;
+            margin: 0 auto 18px;
+            width: 100%;
+            max-width: 360px; /* preferred max width */
+            height: auto;    /* preserve aspect ratio */
+            max-height: 180px;
+            border-radius: 12px;
+            object-fit: contain;
+        }
+        .sidebar-logo-img {
+            display: block;
+            width: 100%;
+            max-width: 220px;
+            height: auto;
+            max-height: 72px;
+            object-fit: contain;
+        }
+
+        @media (max-width: 800px) {
+            .logo-landing-img { max-width: 260px; max-height: 130px; border-radius: 10px; }
+            .sidebar { width: 220px; }
+            .sidebar-logo-img { max-width: 180px; max-height: 60px; }
+        }
 
         /* Sign out wrapper/button helpers */
         .signout-wrap { margin: 32px 0 0 0; display:flex; justify-content:center; }
