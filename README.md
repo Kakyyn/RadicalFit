@@ -54,6 +54,48 @@ Security & production
 - If you plan to run this in production, prefer server-side migration using the Firebase Admin SDK to avoid exposing credentials or allowing public writes.
 - Harden Firestore security rules to restrict writes and reads as needed.
 
+Admin setup and secure rules
+
+1) Set an admin custom claim on a user (server-side)
+
+ - Create a Firebase service account key and download the JSON to a secure machine.
+ - Use the included helper `tools/set_admin_claim.js` to set the `admin` custom claim by email.
+
+PowerShell example:
+
+```powershell
+$env:GOOGLE_APPLICATION_CREDENTIALS = 'C:\path\to\service-account.json'
+node .\tools\set_admin_claim.js admin@example.com
+```
+
+After running this, the specified user will have the `admin: true` claim. The user will need to sign out and sign in again (or refresh their ID token) for the client SDK to see the claim.
+
+2) Firestore rules that allow only admin writes
+
+This example allows reads to authenticated users but only allows writes from users with the `admin` custom claim. Use this in the Console → Firestore → Rules.
+
+```js
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Allow authenticated reads for most collections
+    match /{document=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.token.admin == true;
+    }
+  }
+}
+```
+
+3) Client behavior
+
+ - In the app, restrict admin UI (migration button, bulk writes) to only users who are admins. You can check `firebase.auth().currentUser.getIdTokenResult()` on page load and inspect `claims.admin` before showing admin actions.
+ - The migration button included in the app will attempt anonymous sign-in if there's no user; for admin-only writes that will not help — authenticate the admin account via email/password or other sign-in method, then run migration.
+
+4) Server-side admin migration
+
+ - Use `tools/migrate_to_firestore.js` with the exported JSON and service account credentials. This bypasses Firestore rules and is the safest production path.
+
+
 If you'd like, I can:
 - Replace any remaining full-array batch writes with per-document updates throughout the codebase.
 - Add more unit/smoke tests and a CI lint step.

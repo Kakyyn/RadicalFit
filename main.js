@@ -457,8 +457,8 @@ function setupNavigation(items) {
         let qrScanner = null;
         
         // Admin credentials
-        const ADMIN_EMAIL = 'admin@radicalfit.com';
-        const ADMIN_PASSWORD = 'admin';
+        const ADMIN_EMAIL = 'mau2794@gmail.com';
+        const ADMIN_PASSWORD = 'Admins';
 
         // =====================
         // DOM ELEMENTS
