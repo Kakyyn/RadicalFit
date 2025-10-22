@@ -1,4 +1,397 @@
 // Attach sign out event listener (call after rendering sidebar)
+// --- Resilient global modal fallback wrappers ---
+// These provide safe no-op/open/close behavior for callers that may run
+// before the full animated helpers are defined (stale caches/service-worker).
+try {
+    if (typeof window !== 'undefined') {
+        // Only set fallbacks if not already present
+        if (!window.openModal) {
+            window.openModal = function(modal) {
+                try { if (modal && modal.classList) modal.classList.add('show'); } catch (e) {}
+            };
+        }
+        if (!window.closeModal) {
+            window.closeModal = function(modal) {
+                try { if (modal && modal.classList) modal.classList.remove('show'); } catch (e) {}
+            };
+        }
+        if (!window.openModalById) {
+            window.openModalById = function(id) { try { const m = document.getElementById(id); if (m) m.classList.add('show'); } catch(e){} };
+        }
+        if (!window.closeModalById) {
+            window.closeModalById = function(id) { try { const m = document.getElementById(id); if (m) m.classList.remove('show'); } catch(e){} };
+        }
+    }
+} catch (e) { /* ignore */ }
+
+// -----------------------------
+// Firebase (Firestore) wiring
+// -----------------------------
+// This block will initialize Firebase only if `window.FIREBASE_CONFIG` is present.
+// To enable, set the config object in index.html (or in the browser console) before main.js loads:
+// window.FIREBASE_CONFIG = { apiKey: '...', authDomain: '...', projectId: '...', measurementId: '...', appId: '...', messagingSenderId: '...' };
+try {
+    if (typeof window !== 'undefined' && window.FIREBASE_CONFIG) {
+        try {
+            // Initialize Firebase compat SDK (we loaded compat scripts in index.html)
+            firebase.initializeApp(window.FIREBASE_CONFIG);
+            const firebaseAuth = firebase.auth();
+            const firestore = firebase.firestore();
+
+            // Enable offline persistence for Firestore (browser cache)
+            try { firestore.enablePersistence({ synchronizeTabs: true }); } catch (e) { console.warn('Firestore persistence not enabled:', e); }
+
+            // Expose for other modules
+            window._radical_firebase = { auth: firebaseAuth, db: firestore };
+
+            // Simple auth helper: signInWithEmailPassword
+            async function fbSignIn(email, password) {
+                return firebaseAuth.signInWithEmailAndPassword(email, password);
+            }
+            async function fbSignOut() { return firebaseAuth.signOut(); }
+            window.fbSignIn = fbSignIn; window.fbSignOut = fbSignOut;
+
+            // Real-time listeners setup helper (example: listen to members collection)
+            function listenMembers(onChange) {
+                return firestore.collection('members').onSnapshot(snap => {
+                    const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                    try { onChange(docs); } catch (e) { console.error(e); }
+                });
+            }
+            window.listenMembers = listenMembers;
+
+            // Realtime listeners and CRUD helpers
+            let _membersUnsub = null;
+            let _exercisesUnsub = null;
+
+            function setSyncStatus(text) {
+                try { const el = document.getElementById('syncStatus'); if (el) el.textContent = text; } catch(e){}
+            }
+
+            let lastSync = null;
+
+            async function handleOnline() {
+                setSyncStatus('Sync: connected (flushing)');
+                try { await flushPendingWrites(); lastSync = new Date().toISOString(); setSyncStatus('Sync: connected (last: ' + new Date(lastSync).toLocaleString() + ')'); } catch(e) { console.warn(e); setSyncStatus('Sync: connected'); }
+            }
+            window.addEventListener('online', handleOnline);
+            // attempt flush immediately if already online
+            if (navigator.onLine) handleOnline();
+
+            function startRealtimeSync() {
+                try {
+                    // Members
+                    _membersUnsub = firestore.collection('members').onSnapshot(snap => {
+                        const serverDocs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                        try {
+                            // Merge with local members using last-write-wins by updatedAt timestamp
+                            const localMap = new Map((members || []).map(m => [m.id, m]));
+                            const merged = [];
+                            for (const s of serverDocs) {
+                                const local = localMap.get(s.id);
+                                const serverTs = parseTs(s.updatedAt || s.registrationDate || s.createdAt);
+                                const localTs = parseTs(local && local.updatedAt);
+                                if (local && localTs > serverTs) {
+                                    // Local is newer: keep local and queue it to upload
+                                    merged.push(local);
+                                    try { queueWrite({ collection: 'members', type: 'set', docId: local.id, doc: local }); } catch(e){}
+                                } else {
+                                    // Server is newer or no local: take server
+                                    merged.push(s);
+                                }
+                                if (local) localMap.delete(s.id);
+                            }
+                            // Any remaining local-only members should be uploaded (likely created offline)
+                            for (const leftover of localMap.values()) {
+                                merged.push(leftover);
+                                try { queueWrite({ collection: 'members', type: 'set', docId: leftover.id, doc: leftover }); } catch(e){}
+                            }
+                            members = merged;
+                            try { saveData('gymMembers', members); } catch(e){}
+                            try { renderMembersTable(); updateAdminStats(); } catch(e){}
+                        } catch (e) { console.error(e); }
+                        lastSync = new Date().toISOString();
+                        setSyncStatus('Sync: connected (last: ' + new Date(lastSync).toLocaleString() + ')');
+                    }, err => { console.warn('members snapshot error', err); setSyncStatus('Sync: error'); });
+
+                    // Exercises
+                    _exercisesUnsub = firestore.collection('exercises').onSnapshot(snap => {
+                        const serverDocs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                        try {
+                            const localMap = new Map((exercises || []).map(x => [x.id, x]));
+                            const merged = [];
+                            for (const s of serverDocs) {
+                                const local = localMap.get(s.id);
+                                const serverTs = parseTs(s.updatedAt || s.createdAt);
+                                const localTs = parseTs(local && local.updatedAt);
+                                if (local && localTs > serverTs) {
+                                    merged.push(local);
+                                    try { queueWrite({ collection: 'exercises', type: 'set', docId: local.id, doc: local }); } catch(e){}
+                                } else {
+                                    merged.push(s);
+                                }
+                                if (local) localMap.delete(s.id);
+                            }
+                            for (const leftover of localMap.values()) {
+                                merged.push(leftover);
+                                try { queueWrite({ collection: 'exercises', type: 'set', docId: leftover.id, doc: leftover }); } catch(e){}
+                            }
+                            exercises = merged;
+                            saveData('exercises', exercises);
+                            try { renderExercisesList(); } catch(e){}
+                        } catch(e) { console.error(e); }
+                    }, err => { console.warn('exercises snapshot error', err); });
+                } catch (e) { console.error('startRealtimeSync error', e); }
+            }
+
+            function stopRealtimeSync() {
+                try { if (_membersUnsub) _membersUnsub(); if (_exercisesUnsub) _exercisesUnsub(); } catch(e){}
+                setSyncStatus('Sync: local');
+            }
+
+            // CRUD helpers
+            async function createMember(member) {
+                try {
+                    member.updatedAt = new Date().toISOString();
+                    if (member.id) {
+                        await firestore.collection('members').doc(member.id).set(member, { merge: true });
+                    } else {
+                        const d = await firestore.collection('members').add(member);
+                        member.id = d.id;
+                    }
+                } catch (e) { console.warn('createMember firestore failed', e); }
+                // Ensure local copy
+                members.push(member);
+                saveData('gymMembers', members);
+                try { renderMembersTable(); updateAdminStats(); } catch(e){}
+                return member;
+            }
+
+            async function updateMember(memberId, patch) {
+                try {
+                    const idx = members.findIndex(m => m.id === memberId);
+                    if (idx !== -1) {
+                        members[idx] = Object.assign({}, members[idx], patch, { updatedAt: new Date().toISOString() });
+                    }
+                    if (firestore) {
+                        try { await firestore.collection('members').doc(memberId).set(members[idx], { merge: true }); }
+                        catch(e) { console.warn('updateMember queued due to error', e); queueWrite({ collection: 'members', type: 'set', docId: memberId, doc: members[idx] }); }
+                    }
+                    saveData('gymMembers', members);
+                    try { renderMembersTable(); updateAdminStats(); } catch(e){}
+                    return members[idx];
+                } catch (e) { console.error('updateMember error', e); return null; }
+            }
+
+            async function deleteMember(memberId) {
+                try { if (firestore) { try { await firestore.collection('members').doc(memberId).delete(); } catch(e) { console.warn('deleteMember queued due to error', e); queueWrite({ collection: 'members', type: 'delete', docId: memberId }); } } } catch(e) { console.warn(e); }
+                members = members.filter(m => m.id !== memberId);
+                saveData('gymMembers', members);
+                try { renderMembersTable(); updateAdminStats(); } catch(e){}
+            }
+
+            async function createExercise(ex) {
+                try {
+                    ex.updatedAt = new Date().toISOString();
+                    if (ex.id) await firestore.collection('exercises').doc(ex.id).set(ex, { merge: true });
+                    else {
+                        const d = await firestore.collection('exercises').add(ex);
+                        ex.id = d.id;
+                    }
+                } catch(e) { console.warn('createExercise firestore failed', e); }
+                exercises.push(ex);
+                saveData('exercises', exercises);
+                try { renderExercisesList(); } catch(e){}
+                return ex;
+            }
+
+            async function updateExercise(exId, patch) {
+                try {
+                    const idx = exercises.findIndex(x => x.id === exId);
+                    if (idx !== -1) exercises[idx] = Object.assign({}, exercises[idx], patch, { updatedAt: new Date().toISOString() });
+                    if (firestore) {
+                        try { await firestore.collection('exercises').doc(exId).set(exercises[idx], { merge: true }); }
+                        catch(e) { console.warn('updateExercise queued due to error', e); queueWrite({ collection: 'exercises', type: 'set', docId: exId, doc: exercises[idx] }); }
+                    }
+                    saveData('exercises', exercises);
+                    try { renderExercisesList(); } catch(e){}
+                    return exercises[idx];
+                } catch(e) { console.error(e); return null; }
+            }
+
+            async function deleteExercise(exId) {
+                try { if (firestore) { try { await firestore.collection('exercises').doc(exId).delete(); } catch(e) { console.warn('deleteExercise queued due to error', e); queueWrite({ collection: 'exercises', type: 'delete', docId: exId }); } } } catch(e) { console.warn(e); }
+                exercises = exercises.filter(x => x.id !== exId);
+                saveData('exercises', exercises);
+                try { renderExercisesList(); } catch(e){}
+            }
+
+            // Expose helpers globally
+            window.startRealtimeSync = startRealtimeSync;
+            window.stopRealtimeSync = stopRealtimeSync;
+            window.createMember = createMember; window.updateMember = updateMember; window.deleteMember = deleteMember;
+            window.createExercise = createExercise; window.updateExercise = updateExercise; window.deleteExercise = deleteExercise;
+
+            // Start realtime sync automatically once Firebase is initialized
+            startRealtimeSync();
+
+            // Update sync status based on navigator
+            try {
+                function updateOnlineStatus() { try { const el = document.getElementById('syncStatus'); if (el) el.textContent = navigator.onLine ? 'Sync: connected' : 'Sync: offline'; } catch(e){} }
+                window.addEventListener('online', updateOnlineStatus);
+                window.addEventListener('offline', updateOnlineStatus);
+                updateOnlineStatus();
+            } catch (e) { /* ignore */ }
+
+            console.log('Firebase initialized (radical PWA)');
+        } catch (e) { console.error('Firebase init error', e); }
+    }
+} catch (e) { /* ignore */ }
+// Ensure global identifier names exist (some environments / inline handlers call the identifier directly)
+try {
+    if (typeof openModal === 'undefined') {
+        // prefer window mapping if set, else create a simple fallback
+        var openModal = (window && window.openModal) ? window.openModal : function(modal) { try { if (modal && modal.classList) modal.classList.add('show'); } catch (e) {} };
+    }
+    if (typeof closeModal === 'undefined') {
+        var closeModal = (window && window.closeModal) ? window.closeModal : function(modal) { try { if (modal && modal.classList) modal.classList.remove('show'); } catch (e) {} };
+    }
+    if (typeof openModalById === 'undefined') {
+        var openModalById = (window && window.openModalById) ? window.openModalById : function(id) { try { const m = document.getElementById(id); if (m) m.classList.add('show'); } catch(e){} };
+    }
+    if (typeof closeModalById === 'undefined') {
+        var closeModalById = (window && window.closeModalById) ? window.closeModalById : function(id) { try { const m = document.getElementById(id); if (m) m.classList.remove('show'); } catch(e){} };
+    }
+} catch(e) { /* ignore */ }
+
+// -----------------------------
+// Persistence abstraction
+// -----------------------------
+// Provides saveData(key, value) and loadData(key) helpers that use Firestore when
+// window._radical_firebase.db is available, otherwise fallback to localStorage.
+const PERSIST_KEYS = {
+    members: 'gymMembers',
+    exercises: 'exercises',
+    purchases: 'comprasList',
+    currentUser: 'currentUser'
+};
+
+async function saveData(key, value) {
+    try {
+        // If Firestore initialized and it's a top-level collection we know, use it
+        if (window._radical_firebase && window._radical_firebase.db) {
+            const db = window._radical_firebase.db;
+            if (key === PERSIST_KEYS.members && Array.isArray(value)) {
+                // Batch write members with doc id = member.id when present
+                const batch = db.batch();
+                for (const m of value) {
+                    if (m && m.id) {
+                        const ref = db.collection('members').doc(m.id);
+                        batch.set(ref, m, { merge: true });
+                    } else {
+                        // fallback: add as new doc
+                        db.collection('members').add(m).catch(()=>{});
+                    }
+                }
+                // Commit batch
+                try { await batch.commit(); } catch(e) { console.warn('batch commit failed', e); }
+                // Also persist locally for offline fallback
+                try { localStorage.setItem(key, JSON.stringify(value)); } catch(e){}
+                return true;
+            }
+            if (key === PERSIST_KEYS.exercises && Array.isArray(value)) {
+                const batch = db.batch();
+                for (const ex of value) {
+                    if (ex && ex.id) batch.set(db.collection('exercises').doc(ex.id), ex, { merge: true });
+                    else db.collection('exercises').add(ex).catch(()=>{});
+                }
+                try { await batch.commit(); } catch(e) { console.warn('batch commit failed', e); }
+                try { localStorage.setItem(key, JSON.stringify(value)); } catch(e){}
+                return true;
+            }
+            if (key === PERSIST_KEYS.purchases && Array.isArray(value)) {
+                try { localStorage.setItem(key, JSON.stringify(value)); } catch(e){}
+                // don't bulk-write purchases automatically (avoid duplicates) — keep local, migration exists
+                return true;
+            }
+            if (key === PERSIST_KEYS.currentUser) {
+                try { localStorage.setItem(key, JSON.stringify(value)); } catch(e){}
+                return true;
+            }
+        }
+    } catch (e) { console.error('saveData error', e); }
+    // Fallback: localStorage
+    try { localStorage.setItem(key, JSON.stringify(value)); return true; } catch (e) { console.error(e); return false; }
+}
+
+function loadData(key) {
+    try {
+        const raw = localStorage.getItem(key);
+        if (!raw) return null;
+        return JSON.parse(raw);
+    } catch (e) { return null; }
+}
+
+// -----------------------------
+// Pending writes queue (offline resilience)
+// -----------------------------
+const PENDING_KEY = 'pendingWrites';
+
+function loadPendingWrites() {
+    try { return JSON.parse(localStorage.getItem(PENDING_KEY) || '[]'); } catch (e) { return []; }
+}
+
+function savePendingWrites(queue) {
+    try { localStorage.setItem(PENDING_KEY, JSON.stringify(queue)); } catch (e) { console.error(e); }
+}
+
+function queueWrite(op) {
+    const q = loadPendingWrites();
+    q.push(Object.assign({ queuedAt: new Date().toISOString() }, op));
+    savePendingWrites(q);
+}
+
+function clearPendingWrites() { savePendingWrites([]); }
+
+async function flushPendingWrites() {
+    if (!window._radical_firebase || !window._radical_firebase.db) return;
+    const db = window._radical_firebase.db;
+    const queue = loadPendingWrites();
+    if (!queue.length) return;
+    const remaining = [];
+    for (const op of queue) {
+        try {
+            if (op.collection === 'members') {
+                if (op.type === 'set') {
+                    if (op.docId) await db.collection('members').doc(op.docId).set(op.doc, { merge: true });
+                    else await db.collection('members').add(op.doc);
+                } else if (op.type === 'delete' && op.docId) {
+                    await db.collection('members').doc(op.docId).delete();
+                }
+            } else if (op.collection === 'exercises') {
+                if (op.type === 'set') {
+                    if (op.docId) await db.collection('exercises').doc(op.docId).set(op.doc, { merge: true });
+                    else await db.collection('exercises').add(op.doc);
+                } else if (op.type === 'delete' && op.docId) {
+                    await db.collection('exercises').doc(op.docId).delete();
+                }
+            } else if (op.collection === 'measurements') {
+                if (op.type === 'add') {
+                    await db.collection('measurements').add(op.doc);
+                }
+            } else if (op.collection === 'purchases') {
+                if (op.type === 'add') await db.collection('purchases').add(op.doc);
+            }
+        } catch (e) {
+            console.warn('flushPendingWrites op failed, keeping queued', op, e);
+            remaining.push(op);
+        }
+    }
+    savePendingWrites(remaining);
+}
+
+function parseTs(s) { try { return s ? new Date(s).getTime() : 0; } catch(e) { return 0; } }
+
 function attachSignOutListener() {
     const btn = document.getElementById('signOutBtn');
     if (btn) {
@@ -24,9 +417,10 @@ function setupNavigation(items) {
             document.querySelectorAll('#navMenu .nav-link').forEach(b => b.classList.remove('active'));
             this.classList.add('active');
             // Hide all tab content areas (admin or member)
-            // Admin tabs
-            const adminTabs = ['miembrosTab', 'comprasTab', 'ajustesTab'];
-            const memberTabs = ['qrTab', 'profileTab', 'measurementsTab', 'progressTab'];
+                // Admin tabs
+                const adminTabs = ['miembrosTab', 'comprasTab', 'ajustesTab'];
+                // include ejerciciosMemberTab so it gets hidden when switching away
+                const memberTabs = ['qrTab', 'profileTab', 'measurementsTab', 'ejerciciosMemberTab', 'progressTab'];
             adminTabs.forEach(id => { const el = document.getElementById(id); if (el) el.classList.add('hidden'); });
             memberTabs.forEach(id => { const el = document.getElementById(id); if (el) el.classList.add('hidden'); });
             // Show the selected tab
@@ -37,6 +431,11 @@ function setupNavigation(items) {
             // Special handling for compras tab (admin)
             if (tab === 'compras' && typeof renderComprasList === 'function') {
                 renderComprasList();
+            }
+            // When member opens Ejercicios tab, re-render member data to populate ejercicios container
+            if (tab === 'ejerciciosMember' && currentUser && !currentUser.isAdmin && typeof renderMemberData === 'function') {
+                const m = members.find(mm => mm.id === currentUser.memberId);
+                if (m) renderMemberData(m);
             }
         });
         li.appendChild(btn);
@@ -88,7 +487,7 @@ function setupNavigation(items) {
             if (closeMemberViewBtn) {
                 closeMemberViewBtn.addEventListener('click', function() {
                     const editModal = document.getElementById('editModal');
-                    if (editModal) editModal.classList.remove('show');
+                    if (editModal) closeModal(editModal);
                 });
             }
             // Hamburger menu toggle logic
@@ -128,7 +527,7 @@ function setupNavigation(items) {
                 if (member) {
                     if (!member.attendance) member.attendance = [];
                     member.attendance.push(new Date().toISOString());
-                    localStorage.setItem('gymMembers', JSON.stringify(members));
+                    saveData('gymMembers', members);
                     renderMembersTable();
                     updateAdminStats();
                     document.getElementById('scanResult').textContent = `✅ Asistencia agregada para ${member.name}`;
@@ -141,20 +540,22 @@ function setupNavigation(items) {
             function openMeasurementModal(memberId) {
                 document.getElementById('measurementMemberId').value = memberId;
                 measurementForm.reset();
+                // default date to today
+                const dateEl = document.getElementById('measurementDate');
+                if (dateEl) {
+                    const today = new Date();
+                    dateEl.value = today.toISOString().slice(0,10);
+                }
                 document.getElementById('measurementError').textContent = '';
                 document.getElementById('measurementSuccess').textContent = '';
-                measurementModal.classList.add('show');
+                openModal(measurementModal);
             }
             window.openMeasurementModal = openMeasurementModal;
 
             const measurementModal = document.getElementById('measurementModal');
             const measurementForm = document.getElementById('measurementForm');
-            document.getElementById('closeMeasurementModal').addEventListener('click', () => {
-                measurementModal.classList.remove('show');
-            });
-            document.getElementById('cancelMeasurement').addEventListener('click', () => {
-                measurementModal.classList.remove('show');
-            });
+            document.getElementById('closeMeasurementModal').addEventListener('click', () => { closeModal(measurementModal); });
+            document.getElementById('cancelMeasurement').addEventListener('click', () => { closeModal(measurementModal); });
             measurementForm.addEventListener('submit', function(e) {
                 e.preventDefault();
                 const memberId = document.getElementById('measurementMemberId').value;
@@ -164,8 +565,11 @@ function setupNavigation(items) {
                     return;
                 }
                 // Prepare new measurement entry
+                // Use provided date if present, otherwise use now
+                const dateInput = document.getElementById('measurementDate')?.value;
+                const dateISO = dateInput ? new Date(dateInput).toISOString() : new Date().toISOString();
                 const entry = {
-                    date: new Date().toISOString(),
+                    date: dateISO,
                     weight: parseFloat(document.getElementById('measurementWeight').value),
                     abdomen: parseFloat(document.getElementById('measurementAbdomen').value),
                     cintura: parseFloat(document.getElementById('measurementCintura').value),
@@ -178,10 +582,10 @@ function setupNavigation(items) {
                 if (!Array.isArray(member.measurementHistory)) member.measurementHistory = [];
                 member.measurementHistory.push(entry);
                 // Save to localStorage
-                localStorage.setItem('gymMembers', JSON.stringify(members));
+                saveData('gymMembers', members);
                 document.getElementById('measurementSuccess').textContent = 'Medición guardada exitosamente.';
-                setTimeout(() => {
-                    measurementModal.classList.remove('show');
+            setTimeout(() => {
+                closeModal(measurementModal);
                     // If the member is viewing their dashboard, refresh it
                     if (currentUser && !currentUser.isAdmin && currentUser.memberId === memberId) {
                         renderMemberData(member);
@@ -203,9 +607,44 @@ function setupNavigation(items) {
                     const reader = new FileReader();
                     reader.onload = function(e) {
                         beforePreview.src = e.target.result;
-                        beforePreview.style.display = 'block';
+                        beforePreview.classList.add('show');
                     };
                     reader.readAsDataURL(this.files[0]);
+                }
+            });
+            // Add exercise form
+            const addExerciseForm = document.getElementById('addExerciseForm');
+            addExerciseForm.addEventListener('submit', function(e) {
+                e.preventDefault();
+                const title = document.getElementById('exerciseTitle').value.trim();
+                const desc = document.getElementById('exerciseDescription').value.trim();
+                const video = document.getElementById('exerciseVideo').value.trim();
+                if (!title) {
+                    document.getElementById('exerciseError').textContent = 'El título es requerido.';
+                    return;
+                }
+                const ex = { id: 'E' + Date.now().toString(36), title, description: desc, video };
+                addExercise(ex);
+                document.getElementById('exerciseSuccess').textContent = 'Ejercicio guardado.';
+                setTimeout(() => closeModal(document.getElementById('addExerciseModal')), 700);
+            });
+
+            // Confirm assign exercise
+            document.getElementById('confirmAssignExercise').addEventListener('click', function() {
+                const exId = document.getElementById('assignExerciseSelect').value;
+                const memberId = document.getElementById('assignMemberSelect').value;
+                const sets = parseInt(document.getElementById('assignSetsInput')?.value || '3', 10) || 3;
+                const reps = parseInt(document.getElementById('assignRepsInput')?.value || '10', 10) || 10;
+                if (!exId || !memberId) {
+                    document.getElementById('assignError').textContent = 'Selecciona ejercicio y miembro.';
+                    return;
+                }
+                const ok = assignExerciseToMember(exId, memberId, sets, reps);
+                if (ok) {
+                    document.getElementById('assignSuccess').textContent = 'Ejercicio asignado.';
+                    setTimeout(() => closeModal(document.getElementById('assignExerciseModal')), 700);
+                } else {
+                    document.getElementById('assignError').textContent = 'Error al asignar.';
                 }
             });
             afterImgInput.addEventListener('change', function() {
@@ -213,7 +652,7 @@ function setupNavigation(items) {
                     const reader = new FileReader();
                     reader.onload = function(e) {
                         afterPreview.src = e.target.result;
-                        afterPreview.style.display = 'block';
+                        afterPreview.classList.add('show');
                     };
                     reader.readAsDataURL(this.files[0]);
                 }
@@ -222,9 +661,93 @@ function setupNavigation(items) {
             const savedUser = JSON.parse(localStorage.getItem('currentUser') || 'null');
             if (savedUser) {
                 currentUser = savedUser;
+                try {
+                    // If member user, apply their theme immediately
+                    if (!currentUser.isAdmin) {
+                        const member = members.find(m => m.id === currentUser.memberId);
+                        applyPlanTheme(member ? member.planType : null);
+                    } else {
+                        applyPlanTheme(null);
+                    }
+                } catch (e) { /* ignore */ }
                 showMainApp();
             } else {
                 showLandingPage();
+            }
+
+            // -------- Migration button wiring (localStorage -> Firestore) --------
+            const migrateBtn = document.getElementById('migrateBtn');
+            const migrationStatus = document.getElementById('migrationStatus');
+            if (migrateBtn) {
+                migrateBtn.addEventListener('click', async function() {
+                    // Ask for confirmation (prefer modal-based confirm if available)
+                    const confirmFn = (window.confirmPrompt && typeof window.confirmPrompt === 'function') ? window.confirmPrompt : function(msg, cb){ const ok = window.confirm(msg); cb(ok); };
+                    confirmFn('Esto subirá los datos locales a Firestore. Asegúrate de que Firestore esté configurado. ¿Deseas continuar?', async function(ok) {
+                        if (!ok) return;
+                        migrationStatus.textContent = 'Iniciando migración...';
+                        try {
+                            if (!window._radical_firebase || !window._radical_firebase.db) {
+                                migrationStatus.textContent = '';
+                                showToast('Firestore no está inicializado. Configura window.FIREBASE_CONFIG antes de migrar.', { type: 'error' });
+                                return;
+                            }
+                            const db = window._radical_firebase.db;
+                            // Helper: upload a collection of plain objects, using id if present
+                            async function uploadCollection(key, collectionName) {
+                                const raw = localStorage.getItem(key);
+                                if (!raw) return { uploaded: 0, skipped: 0 };
+                                let items;
+                                try { items = JSON.parse(raw); } catch (e) { return { uploaded: 0, skipped: 0 }; }
+                                if (!Array.isArray(items)) return { uploaded: 0, skipped: 0 };
+                                let uploaded = 0, skipped = 0;
+                                for (const it of items) {
+                                    try {
+                                        const docId = (it && it.id) ? it.id : undefined;
+                                        if (docId) {
+                                            const docRef = db.collection(collectionName).doc(docId);
+                                            const snap = await docRef.get();
+                                            if (snap.exists) { skipped++; continue; }
+                                            await docRef.set(it);
+                                            uploaded++;
+                                        } else {
+                                            await db.collection(collectionName).add(it);
+                                            uploaded++;
+                                        }
+                                    } catch (e) { console.warn('upload error', e); }
+                                }
+                                return { uploaded, skipped };
+                            }
+
+                            const results = {};
+                            results.members = await uploadCollection('gymMembers', 'members');
+                            results.exercises = await uploadCollection('exercises', 'exercises');
+                            // measurements may be stored per-member; collect and upload as separate docs
+                            const rawMembers = JSON.parse(localStorage.getItem('gymMembers') || '[]');
+                            let measUploaded = 0;
+                            for (const m of rawMembers) {
+                                if (Array.isArray(m.measurementHistory) && m.measurementHistory.length) {
+                                    for (const entry of m.measurementHistory) {
+                                        try {
+                                            const doc = Object.assign({}, entry, { memberId: m.id });
+                                            await db.collection('measurements').add(doc);
+                                            measUploaded++;
+                                        } catch (e) { console.warn(e); }
+                                    }
+                                }
+                            }
+                            results.measurements = { uploaded: measUploaded, skipped: 0 };
+
+                            results.purchases = await uploadCollection('comprasList', 'purchases');
+
+                            migrationStatus.textContent = `Migración completada. Miembros: ${results.members.uploaded} (saltados ${results.members.skipped}), Ejercicios: ${results.exercises.uploaded}, Mediciones: ${results.measurements.uploaded}, Compras: ${results.purchases.uploaded}`;
+                            showToast('Migración finalizada.', { type: 'success' });
+                        } catch (e) {
+                            console.error('Migration error', e);
+                            migrationStatus.textContent = '';
+                            showToast('Error durante la migración. Revisa la consola.', { type: 'error' });
+                        }
+                    });
+                });
             }
 
             // Landing page tab switching
@@ -247,7 +770,7 @@ function setupNavigation(items) {
                 showPlanModal(plan);
             }
             function closePlanModalHandler() {
-                document.getElementById('planInfoModal').classList.remove('show');
+                const pm = document.getElementById('planInfoModal'); if (pm) closeModal(pm);
             }
             // Unified tab switching logic
             document.querySelectorAll('.landing-tab').forEach(tab => {
@@ -271,17 +794,9 @@ function setupNavigation(items) {
             }
 
             // Modal event listeners
-            document.getElementById('registerBtn').addEventListener('click', () => {
-                registerModal.classList.add('show');
-            });
-
-            document.getElementById('closeRegisterModal').addEventListener('click', () => {
-                registerModal.classList.remove('show');
-            });
-
-            document.getElementById('cancelRegister').addEventListener('click', () => {
-                registerModal.classList.remove('show');
-            });
+            document.getElementById('registerBtn').addEventListener('click', () => { openModal(registerModal); });
+            document.getElementById('closeRegisterModal').addEventListener('click', () => { closeModal(registerModal); });
+            document.getElementById('cancelRegister').addEventListener('click', () => { closeModal(registerModal); });
 
             // Form submissions
             loginForm.addEventListener('submit', handleLogin);
@@ -292,7 +807,7 @@ function setupNavigation(items) {
 
             // Admin functions
             document.getElementById('addMemberBtn')?.addEventListener('click', () => {
-                registerModal.classList.add('show');
+                openModal(registerModal);
             });
 
             document.getElementById('scanQRBtn')?.addEventListener('click', function() {
@@ -302,7 +817,7 @@ function setupNavigation(items) {
                     openQRScanner();
                 } else {
                     // On desktop, focus the manual ID input for USB QR code reader
-                    scannerModal.classList.add('show');
+                    openModal(scannerModal);
                     setTimeout(() => {
                         const manualInput = document.getElementById('manualIdInput');
                         if (manualInput) manualInput.focus();
@@ -314,7 +829,7 @@ function setupNavigation(items) {
             if (closeScannerBtn) {
                 closeScannerBtn.addEventListener('click', function() {
                     const scannerModal = document.getElementById('scannerModal');
-                    if (scannerModal) scannerModal.classList.remove('show');
+                    if (scannerModal) closeModal(scannerModal);
                     closeQRScanner();
                 });
             }
@@ -323,16 +838,70 @@ function setupNavigation(items) {
             // Fix: Ensure closeEditModal exists before adding event listener
             const closeEditModalBtn = document.getElementById('closeEditModal');
             if (closeEditModalBtn) {
-                closeEditModalBtn.addEventListener('click', () => {
-                    editModal.classList.remove('show');
-                });
+                closeEditModalBtn.addEventListener('click', () => { closeModal(editModal); });
             }
 
-            document.getElementById('cancelEdit').addEventListener('click', () => {
-                editModal.classList.remove('show');
-            });
+            document.getElementById('cancelEdit').addEventListener('click', () => { closeModal(editModal); });
 
             document.getElementById('deleteMember').addEventListener('click', deleteMember);
+
+            // Exercise modal buttons (admin)
+            const addExerciseBtn = document.getElementById('addExerciseBtn');
+            if (addExerciseBtn) addExerciseBtn.addEventListener('click', function() {
+                document.getElementById('addExerciseForm').reset();
+                document.getElementById('exerciseError').textContent = '';
+                document.getElementById('exerciseSuccess').textContent = '';
+                openModal(document.getElementById('addExerciseModal'));
+            });
+            const closeAddExerciseModal = document.getElementById('closeAddExerciseModal');
+            if (closeAddExerciseModal) closeAddExerciseModal.addEventListener('click', () => closeModal(document.getElementById('addExerciseModal')));
+            document.getElementById('cancelAddExercise').addEventListener('click', () => closeModal(document.getElementById('addExerciseModal')));
+
+            const assignExerciseBtnEl = document.getElementById('assignExerciseBtn');
+            if (assignExerciseBtnEl) assignExerciseBtnEl.addEventListener('click', function() {
+                // populate selects
+                const selEx = document.getElementById('assignExerciseSelect');
+                const selMem = document.getElementById('assignMemberSelect');
+                selEx.innerHTML = '';
+                selMem.innerHTML = '';
+                exercises.forEach(ex => selEx.innerHTML += `<option value="${ex.id}">${ex.title}</option>`);
+                members.forEach(m => selMem.innerHTML += `<option value="${m.id}">${m.name} (${m.id})</option>`);
+                // default sets/reps
+                const setsEl = document.getElementById('assignSetsInput');
+                const repsEl = document.getElementById('assignRepsInput');
+                if (setsEl) setsEl.value = 3;
+                if (repsEl) repsEl.value = 10;
+                document.getElementById('assignError').textContent = '';
+                document.getElementById('assignSuccess').textContent = '';
+
+                // Prefill sets/reps when selecting a member or exercise if assignment exists
+                function prefillAssignSetsReps() {
+                    try {
+                        const exId = document.getElementById('assignExerciseSelect').value;
+                        const memberId = document.getElementById('assignMemberSelect').value;
+                        if (!exId || !memberId) return;
+                        const member = members.find(m => m.id === memberId);
+                        if (!member || !Array.isArray(member.assignedExercises)) return;
+                        const assigned = member.assignedExercises.find(a => (typeof a === 'string' ? a === exId : a.id === exId));
+                        if (assigned && typeof assigned === 'object') {
+                            if (setsEl && assigned.sets) setsEl.value = assigned.sets;
+                            if (repsEl && assigned.reps) repsEl.value = assigned.reps;
+                        } else {
+                            if (setsEl) setsEl.value = 3;
+                            if (repsEl) repsEl.value = 10;
+                        }
+                    } catch (err) { console.error('prefillAssignSetsReps error', err); }
+                }
+
+                document.getElementById('assignExerciseSelect').addEventListener('change', prefillAssignSetsReps);
+                document.getElementById('assignMemberSelect').addEventListener('change', prefillAssignSetsReps);
+
+                openModal(document.getElementById('assignExerciseModal'));
+            });
+            const closeAssignExerciseModal = document.getElementById('closeAssignExerciseModal');
+            if (closeAssignExerciseModal) closeAssignExerciseModal.addEventListener('click', () => closeModal(document.getElementById('assignExerciseModal')));
+            document.getElementById('cancelAssignExercise').addEventListener('click', () => closeModal(document.getElementById('assignExerciseModal')));
+
 
             // Member dashboard tabs
             document.querySelectorAll('.member-dashboard-tab').forEach(tab => {
@@ -410,7 +979,7 @@ function setupNavigation(items) {
             // Save saludMovilidad for this member
             members[memberIdx].saludMovilidad = getSaludMovilidadFromForm();
             // Save factoresSalud as well if needed (already implemented)
-            localStorage.setItem('gymMembers', JSON.stringify(members));
+            saveData('gymMembers', members);
         }
         // ...existing code...
     }, true); // Use capture to ensure this runs before default
@@ -430,14 +999,10 @@ function setupNavigation(items) {
     const closeScannerModalBtn = document.getElementById('closeScannerModal');
 
     // Open registration modal
-    document.getElementById('registerBtn').addEventListener('click', () => {
-        registerModal.classList.add('show');
-    });
+    document.getElementById('registerBtn').addEventListener('click', () => { openModal(registerModal); });
 
     // Close registration modal
-    closeRegisterModalBtn.addEventListener('click', () => {
-        registerModal.classList.remove('show');
-    });
+    closeRegisterModalBtn.addEventListener('click', () => { closeModal(registerModal); });
 
     // Open edit member modal
     function openEditMemberModal(memberId) {
@@ -451,6 +1016,9 @@ function setupNavigation(items) {
         document.getElementById('editEmail').value = member.email;
         document.getElementById('editDob').value = member.dob;
         document.getElementById('editWeight').value = member.weight;
+    // Plan type
+    const planTypeEl = document.getElementById('editPlanType');
+    if (planTypeEl) planTypeEl.value = member.planType || 'in_person';
         document.getElementById('editAbdomen').value = member.measurements.abdomen;
         document.getElementById('editCintura').value = member.measurements.cintura;
         document.getElementById('editCadera').value = member.measurements.cadera;
@@ -466,20 +1034,20 @@ function setupNavigation(items) {
         // Show previews if images exist
         const beforePreview = document.getElementById('editBeforePreview');
         const afterPreview = document.getElementById('editAfterPreview');
-        if (member.images.before) {
-            beforePreview.src = member.images.before;
-            beforePreview.style.display = 'block';
-        } else {
-            beforePreview.src = '';
-            beforePreview.style.display = 'none';
-        }
-        if (member.images.after) {
-            afterPreview.src = member.images.after;
-            afterPreview.style.display = 'block';
-        } else {
-            afterPreview.src = '';
-            afterPreview.style.display = 'none';
-        }
+            if (member.images.before) {
+        beforePreview.src = member.images.before;
+        beforePreview.classList.add('show');
+    } else {
+        beforePreview.src = '';
+        beforePreview.classList.remove('show');
+    }
+    if (member.images.after) {
+        afterPreview.src = member.images.after;
+        afterPreview.classList.add('show');
+    } else {
+        afterPreview.src = '';
+        afterPreview.classList.remove('show');
+    }
 
         // Set Factores de Salud values if present
         if (member.factoresSalud) {
@@ -560,12 +1128,12 @@ function setupNavigation(items) {
             // Make all fields read-only/disabled
             setEditFormReadOnly(true);
             // Hide save/cancel, show edit
-            document.querySelectorAll('.edit-only').forEach(el => el.style.display = 'none');
+            document.querySelectorAll('.edit-only').forEach(el => el.classList.add('hidden'));
             const editBtn = document.getElementById('enableEditBtn');
-            if (editBtn) editBtn.style.display = 'inline-block';
+            if (editBtn) editBtn.classList.remove('hidden');
 
             // Show the modal
-            editModal.classList.add('show');
+            openModal(editModal);
         }
 
         // Helper to set all edit form fields to readonly/disabled or editable
@@ -609,13 +1177,13 @@ function setupNavigation(items) {
                 editBtn.className = 'btn btn-primary';
                 editBtn.id = 'enableEditBtn';
                 editBtn.textContent = 'Editar';
-                editBtn.style.marginRight = '8px';
+                editBtn.classList.add('mr-8');
                 btnGroup.insertBefore(editBtn, btnGroup.querySelector('button[type="submit"]'));
                 editBtn.addEventListener('click', function() {
                     setEditFormReadOnly(false);
                     // Show save/cancel, hide edit
-                    document.querySelectorAll('.edit-only').forEach(el => el.style.display = 'inline-block');
-                    editBtn.style.display = 'none';
+                    document.querySelectorAll('.edit-only').forEach(el => el.classList.remove('hidden'));
+                    editBtn.classList.add('hidden');
                 });
             }
             // When cancel is clicked, return to view mode
@@ -623,9 +1191,9 @@ function setupNavigation(items) {
             if (cancelEditBtn) {
                 cancelEditBtn.addEventListener('click', function() {
                     setEditFormReadOnly(true);
-                    document.querySelectorAll('.edit-only').forEach(el => el.style.display = 'none');
+                    document.querySelectorAll('.edit-only').forEach(el => el.classList.add('hidden'));
                     const editBtn = document.getElementById('enableEditBtn');
-                    if (editBtn) editBtn.style.display = 'inline-block';
+                    if (editBtn) editBtn.classList.remove('hidden');
                 });
             }
 
@@ -634,9 +1202,10 @@ function setupNavigation(items) {
                 btn.addEventListener('click', function() {
                     document.querySelectorAll('.member-tab-btn').forEach(b => b.classList.remove('active'));
                     this.classList.add('active');
-                    document.querySelectorAll('.tab-content-area').forEach(tab => tab.style.display = 'none');
+                    document.querySelectorAll('.tab-content-area').forEach(tab => tab.classList.add('hidden'));
                     const tabId = this.getAttribute('data-tab');
-                    document.getElementById(tabId).style.display = 'block';
+                    const tEl = document.getElementById(tabId);
+                    if (tEl) tEl.classList.remove('hidden');
                 });
             });
         });
@@ -649,10 +1218,9 @@ document.addEventListener('DOMContentLoaded', function() {
     const resetBtn = document.getElementById('resetAllBtn');
     if (resetBtn) {
         resetBtn.addEventListener('click', function() {
-            if (confirm('¿Estás seguro de que deseas eliminar TODOS los datos? Esta acción no se puede deshacer.')) {
-                localStorage.clear();
-                location.reload();
-            }
+            confirmPrompt('¿Estás seguro de que deseas eliminar TODOS los datos? Esta acción no se puede deshacer.', function(ok) {
+                if (ok) { localStorage.clear(); location.reload(); }
+            });
         });
     }
     // Export data
@@ -668,7 +1236,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
-                a.style.display = 'none';
+                a.classList.add('hidden');
                 a.href = url;
                 a.download = 'radicalfit-backup-' + new Date().toISOString().slice(0,10) + '.json';
                 document.body.appendChild(a);
@@ -679,13 +1247,13 @@ document.addEventListener('DOMContentLoaded', function() {
                 }, 200);
                 if (msg) {
                     msg.textContent = 'Exportación iniciada. Revisa tu carpeta de descargas.';
-                    msg.style.color = '#10b981';
-                    setTimeout(() => { msg.textContent = ''; msg.style.color = '' }, 4000);
+                    msg.classList.add('success-message');
+                    setTimeout(() => { msg.textContent = ''; msg.classList.remove('success-message'); }, 4000);
                 }
             } catch (err) {
                 if (msg) {
                     msg.textContent = 'Error al exportar: ' + err.message;
-                    msg.style.color = '#ef4444';
+                    msg.classList.add('error-message');
                 }
             }
         });
@@ -702,7 +1270,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     const imported = JSON.parse(evt.target.result);
                     if (typeof imported !== 'object' || Array.isArray(imported)) throw new Error('Formato inválido');
                     for (const key in imported) {
-                        localStorage.setItem(key, imported[key]);
+                        try { saveData(key, imported[key]); } catch(e) { localStorage.setItem(key, imported[key]); }
                     }
                     document.getElementById('settingsMessage').textContent = 'Datos importados correctamente. Recargando...';
                     setTimeout(() => location.reload(), 1200);
@@ -716,24 +1284,30 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
         let comprasList = JSON.parse(localStorage.getItem('comprasList')) || [];
+        // Exercises storage
+        let exercises = JSON.parse(localStorage.getItem('exercises') || '[]');
+
+        function saveExercises() {
+            saveData('exercises', exercises);
+        }
 
         function renderComprasList() {
             const ul = document.getElementById('comprasList');
             ul.innerHTML = '';
-            if (comprasList.length === 0) {
-                ul.innerHTML = '<li style="color:#aaa;text-align:center;">Sin compras registradas</li>';
+                if (comprasList.length === 0) {
+                    ul.innerHTML = '<li class="muted">Sin compras registradas</li>';
                 renderComprasWinner();
                 return;
             }
             comprasList.forEach(item => {
-                let dots = '';
-                for (let i = 0; i < item.count; i++) {
-                    dots += '<span style="display:inline-block;width:14px;height:14px;background:#FFD600;border-radius:50%;margin-right:4px;"></span>';
-                }
-                ul.innerHTML += `<li style="display:flex;align-items:center;gap:10px;padding:8px 0 8px 0;border-bottom:1px solid #222;">
-                    ${dots}
-                    <span>${item.name}</span>
-                </li>`;
+                    let dots = '';
+                    for (let i = 0; i < item.count; i++) {
+                        dots += '<span class="compra-dot"></span>';
+                    }
+                    ul.innerHTML += `<li class="compra-item">
+                        <div class="compra-dots">${dots}</div>
+                        <div class="compra-name">${item.name}</div>
+                    </li>`;
             });
             renderComprasWinner();
         }
@@ -745,7 +1319,7 @@ document.addEventListener('DOMContentLoaded', function() {
             } else {
                 comprasList.push({ id: member.id, name: member.name, count: 1 });
             }
-            localStorage.setItem('comprasList', JSON.stringify(comprasList));
+            saveData('comprasList', comprasList);
             renderComprasList();
         }
 
@@ -758,7 +1332,7 @@ document.addEventListener('DOMContentLoaded', function() {
             if (!purchaseModal || !purchaseInput || !purchaseBtn) return;
             purchaseInput.value = '';
             purchaseResult.textContent = '';
-            purchaseModal.classList.add('show');
+            openModal(purchaseModal);
             purchaseInput.focus();
             // Remove previous event listeners
             const newBtn = purchaseBtn.cloneNode(true);
@@ -786,21 +1360,24 @@ document.addEventListener('DOMContentLoaded', function() {
             const closeBtn = document.getElementById('closePurchaseModal');
             if (closeBtn) {
                 closeBtn.onclick = function() {
-                    purchaseModal.classList.remove('show');
+                    closeModal(purchaseModal);
                 };
             }
         }
 
         // Show admin dashboard
         function showAdminDashboard() {
-            document.getElementById('pageTitle').textContent = 'Admin Dashboard';
+                    // Preserve inline elements (like plan label) when changing title
+                    const pageTitleEl = document.getElementById('pageTitle');
+                    if (pageTitleEl) pageTitleEl.innerHTML = 'Admin Dashboard <span id="memberPlanLabel" class="plan-label hidden"></span>';
             document.getElementById('memberDashboard').classList.add('hidden');
             document.getElementById('adminDashboard').classList.remove('hidden');
             setupNavigation([
-                { name: 'Dashboard', icon: '📊', tab: 'miembros', active: true },
-                { name: 'Compras', icon: '👥', tab: 'compras' },
-                { name: 'Ajustes', icon: '⚙️', tab: 'ajustes' }
-            ]);
+                        { name: 'Dashboard', icon: '📊', tab: 'miembros', active: true },
+                        { name: 'Compras', icon: '�️', tab: 'compras' },
+                        { name: 'Ejercicios', icon: '🏋️', tab: 'ejercicios' },
+                        { name: 'Ajustes', icon: '⚙️', tab: 'ajustes' }
+                    ]);
             // Show only the members tab by default
             document.getElementById('miembrosTab').classList.remove('hidden');
             document.getElementById('comprasTab').classList.add('hidden');
@@ -813,12 +1390,16 @@ document.addEventListener('DOMContentLoaded', function() {
                     // Hide all admin cards
                     document.getElementById('miembrosTab').classList.add('hidden');
                     document.getElementById('comprasTab').classList.add('hidden');
+                    document.getElementById('ejerciciosTab')?.classList.add('hidden');
                     document.getElementById('ajustesTab').classList.add('hidden');
                     // Show the selected tab
                     const tab = this.getAttribute('data-tab');
                     if (tab === 'compras') {
                         document.getElementById('comprasTab').classList.remove('hidden');
                         renderComprasList();
+                    } else if (tab === 'ejercicios') {
+                        document.getElementById('ejerciciosTab').classList.remove('hidden');
+                        renderExercisesList();
                     } else if (tab === 'ajustes') {
                         document.getElementById('ajustesTab').classList.remove('hidden');
                     } else {
@@ -844,7 +1425,9 @@ document.addEventListener('DOMContentLoaded', function() {
     const member = members.find(m => m.id === currentUser.memberId);
     if (!member) return;
 
-    document.getElementById('pageTitle').textContent = 'Mi Tablero';
+    // Preserve inline elements (like plan label) when changing title
+    const pageTitleEl = document.getElementById('pageTitle');
+    if (pageTitleEl) pageTitleEl.innerHTML = 'Mi Tablero <span id="memberPlanLabel" class="plan-label hidden"></span>';
     document.getElementById('adminDashboard').classList.add('hidden');
     document.getElementById('memberDashboard').classList.remove('hidden');
 
@@ -856,12 +1439,24 @@ document.addEventListener('DOMContentLoaded', function() {
         { name: 'QR', icon: '�', tab: 'qr', active: true },
         { name: 'Perfil', icon: '👤', tab: 'profile' },
         { name: 'Mediciones', icon: '�', tab: 'measurements' },
+        { name: 'Ejercicios', icon: '🏋️', tab: 'ejerciciosMember' },
         { name: 'Progreso', icon: '📈', tab: 'progress' }
     ]);
     // Ensure sign out button works after navigation render
     setTimeout(attachSignOutListener, 0);
     // Always render member data with correct memberId
     renderMemberData(member);
+    // Update top page title plan label
+    try {
+        const planLabel = document.getElementById('memberPlanLabel');
+        if (planLabel) {
+            planLabel.classList.remove('hidden');
+            const dotClass = planTypeToDotClass(member.planType);
+            const badge = `<span class="plan-badge plan-legend-dot ${dotClass}"></span>`;
+            const pretty = (member.planType || 'in_person').toLowerCase() === 'virtual' ? 'Virtual' : (member.planType || 'in_person').toLowerCase() === 'gladiadores' ? 'Gladiadores' : 'Presencial';
+            planLabel.innerHTML = badge + ' ' + pretty;
+        }
+    } catch (e) { console.error(e); }
         }
 
         // =====================
@@ -870,10 +1465,34 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // Render member dashboard data (profile, QR, measurements, etc)
         function renderMemberData(member) {
+            try { applyPlanTheme(member ? member.planType : null); } catch (e) { /* ignore */ }
 
     // Member ID
     const memberIdEl = document.getElementById('memberId');
-    if (memberIdEl) memberIdEl.textContent = member.id;
+        if (memberIdEl) memberIdEl.textContent = member.id || 'N/A';
+    // Plan-type color badge in member profile header
+    try {
+        const profileHeader = document.getElementById('memberProfile');
+        if (profileHeader) {
+            // remove existing badge if present
+            const existing = document.getElementById('memberPlanBadge');
+            if (existing) existing.remove();
+            const badge = document.createElement('div');
+            badge.id = 'memberPlanBadge';
+            badge.className = 'member-plan-dot';
+            badge.title = member.planType || 'plan';
+            // map planType to dot class
+            const dotClass = planTypeToDotClass(member.planType);
+            if (dotClass) badge.classList.add(dotClass);
+            // append badge next to the name element if present
+            const nameEl = document.getElementById('memberProfileName');
+            if (nameEl && nameEl.parentNode) {
+                nameEl.parentNode.insertBefore(badge, nameEl.nextSibling);
+            } else {
+                profileHeader.appendChild(badge);
+            }
+        }
+    } catch (e) { console.error(e); }
     // Profile Info
     document.getElementById('memberProfileName').textContent = member.name;
     document.getElementById('memberProfileEmail').textContent = member.email;
@@ -938,26 +1557,103 @@ document.addEventListener('DOMContentLoaded', function() {
     let history = Array.isArray(member.measurementHistory) ? member.measurementHistory : [];
     if (histDiv) {
         if (!history.length) {
-            histDiv.innerHTML = '<p style="color:#aaa;text-align:center;padding:20px;">No hay mediciones adicionales registradas</p>';
+        histDiv.innerHTML = '<p class="muted muted-centered">No hay mediciones adicionales registradas</p>';
         } else {
-            histDiv.innerHTML = history.map(entry => {
+            // Group history by year-month
+            const groups = {};
+            history.forEach(entry => {
                 const d = new Date(entry.date);
-                const dateStr = d.toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric' });
-                // Use 0 if value is 0, otherwise fallback to '-'
-                function showVal(val, unit) {
-                    return (typeof val === 'number' && !isNaN(val)) ? val + ' ' + unit : '-';
+                if (isNaN(d)) return;
+                const key = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+                if (!groups[key]) groups[key] = [];
+                groups[key].push(entry);
+            });
+            // Sort month keys descending (latest first)
+            const sortedKeys = Object.keys(groups).sort((a,b) => b.localeCompare(a));
+            const parts = [];
+            sortedKeys.forEach(key => {
+                const [year,month] = key.split('-');
+                const monthName = new Date(year, parseInt(month,10)-1).toLocaleString('es-MX', { month: 'long', year: 'numeric' });
+                parts.push(`<div class="measurement-month-header">${monthName}</div>`);
+                groups[key].sort((a,b) => new Date(a.date) - new Date(b.date));
+                groups[key].forEach(entry => {
+                    const d = new Date(entry.date);
+                    const dateStr = d.toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric' });
+                    function showVal(val, unit) { return (typeof val === 'number' && !isNaN(val)) ? val + ' ' + unit : '-'; }
+                    parts.push(`<div class="measurement-entry">
+                        <div class="measurement-date">${dateStr}</div>
+                        <div><strong>Peso:</strong> ${showVal(entry.weight, 'kg')}</div>
+                        <div><strong>Abdomen:</strong> ${showVal(entry.abdomen, 'cm')}</div>
+                        <div><strong>Cintura:</strong> ${showVal(entry.cintura, 'cm')}</div>
+                        <div><strong>Cadera:</strong> ${showVal(entry.cadera, 'cm')}</div>
+                        <div><strong>Pierna:</strong> ${showVal(entry.pierna, 'cm')}</div>
+                        <div><strong>Brazo:</strong> ${showVal(entry.brazo, 'cm')}</div>
+                        <div><strong>Espalda:</strong> ${showVal(entry.espalda, 'cm')}</div>
+                    </div>`);
+                });
+            });
+            histDiv.innerHTML = parts.join('');
+        }
+    }
+    // exercises are shown only in the Ejercicios tab
+    // Render member ejercicios tab contents (separate container) only when the tab is visible
+    const memberEjTab = document.getElementById('ejerciciosMemberTab');
+    const memberEjList = document.getElementById('memberEjerciciosList');
+    if (memberEjList && memberEjTab && !memberEjTab.classList.contains('hidden')) {
+        memberEjList.innerHTML = '';
+        const assigned = Array.isArray(member.assignedExercises) ? member.assignedExercises : [];
+        if (!assigned.length) {
+            memberEjList.innerHTML = '<div class="muted-sm">No tienes ejercicios asignados</div>';
+        } else {
+            assigned.forEach(item => {
+                // item can be string id (legacy) or object {id, sets, reps}
+                const entry = (typeof item === 'string') ? { id: item, sets: null, reps: null } : item;
+                const ex = exercises.find(e => e.id === entry.id);
+                if (!ex) return;
+                const wrapper = document.createElement('div');
+                wrapper.className = 'member-exercise';
+                const titleRow = document.createElement('div');
+                titleRow.className = 'member-exercise-title-row';
+                const title = document.createElement('div');
+                title.className = 'member-exercise-title';
+                title.textContent = ex.title;
+                titleRow.appendChild(title);
+                if (entry.sets || entry.reps) {
+                    const meta = document.createElement('div');
+                    meta.className = 'member-exercise-meta';
+                    meta.textContent = `${entry.sets || '-'} sets × ${entry.reps || '-'} reps`;
+                    titleRow.appendChild(meta);
                 }
-                return `<div style="background:#232323;padding:12px 16px;margin-bottom:12px;border-radius:7px;border-left:3px solid #FFD600;">
-                    <div style="color:#FFD600;font-weight:600;margin-bottom:4px;">${dateStr}</div>
-                    <div><strong>Peso:</strong> ${showVal(entry.weight, 'kg')}</div>
-                    <div><strong>Abdomen:</strong> ${showVal(entry.abdomen, 'cm')}</div>
-                    <div><strong>Cintura:</strong> ${showVal(entry.cintura, 'cm')}</div>
-                    <div><strong>Cadera:</strong> ${showVal(entry.cadera, 'cm')}</div>
-                    <div><strong>Pierna:</strong> ${showVal(entry.pierna, 'cm')}</div>
-                    <div><strong>Brazo:</strong> ${showVal(entry.brazo, 'cm')}</div>
-                    <div><strong>Espalda:</strong> ${showVal(entry.espalda, 'cm')}</div>
-                </div>`;
-            }).join('');
+                wrapper.appendChild(titleRow);
+                const desc = document.createElement('div');
+                desc.className = 'member-exercise-desc';
+                desc.textContent = ex.description || '';
+                wrapper.appendChild(desc);
+                if (ex.video) {
+                    // If YouTube link, embed iframe
+                    const ytMatch = ex.video.match(/(?:youtube.com\/watch\?v=|youtu.be\/)([A-Za-z0-9_-]+)/);
+                    if (ytMatch && ytMatch[1]) {
+                        const iframe = document.createElement('iframe');
+                        iframe.className = 'exercise-video';
+                        iframe.src = `https://www.youtube.com/embed/${ytMatch[1]}`;
+                        iframe.frameBorder = '0';
+                        iframe.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture';
+                        iframe.allowFullscreen = true;
+                        wrapper.appendChild(iframe);
+                    } else {
+                        // Otherwise try HTML5 video
+                        const videoEl = document.createElement('video');
+                        videoEl.className = 'exercise-video';
+                        videoEl.controls = true;
+                        const src = document.createElement('source');
+                        src.src = ex.video;
+                        videoEl.appendChild(src);
+                        wrapper.appendChild(videoEl);
+                    }
+                }
+                // 'Marcar como completado' removed (was causing runtime errors in some environments)
+                memberEjList.appendChild(wrapper);
+            });
         }
     }
     // Show latest measurement in stat card (if any)
@@ -982,12 +1678,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 qrDiv.appendChild(canvas);
                 window.QRCode.toCanvas(canvas, member.id, { width: 128, height: 128 }, function (error) {
                     if (error) {
-                        qrDiv.innerHTML = '<span style="color:#ef4444">Error generando QR</span>';
+                        qrDiv.innerHTML = '<span class="error-message">Error generando QR</span>';
                         console.error(error);
                     }
                 });
             } else if (!window.QRCode) {
-                if (qrDiv) qrDiv.innerHTML = '<span style="color:#ef4444">Error: QRCode library not loaded</span>';
+                if (qrDiv) qrDiv.innerHTML = '<span class="error-message">Error: QRCode library not loaded</span>';
                 console.error('QRCode library is not loaded.');
             }
             // Attendance count
@@ -1074,9 +1770,9 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             title.textContent = planTitle;
             subtitle.textContent = planSubtitle;
-            subtitle.style.display = planSubtitle ? 'block' : 'none';
+            if (planSubtitle) subtitle.classList.remove('hidden'); else subtitle.classList.add('hidden');
             body.innerHTML = planDesc;
-            modal.classList.add('show');
+            openModal(modal);
         }
 
         // Show landing page
@@ -1129,14 +1825,32 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             });
             if (patched) {
-                localStorage.setItem('gymMembers', JSON.stringify(members));
+                saveData('gymMembers', members);
             }
             if (currentUser.isAdmin) {
-                showAdminDashboard();
+                    showAdminDashboard();
+                    // Admins keep default theme
+                    applyPlanTheme(null);
             } else {
-                showMemberDashboard();
+                    showMemberDashboard();
+                    // Apply the logged-in member's plan theme
+                    const member = members.find(m => m.id === currentUser.memberId);
+                    applyPlanTheme(member ? member.planType : null);
             }
         }
+
+    // Apply a theme class to <body> based on planType
+    function applyPlanTheme(planType) {
+        try {
+            const b = document.body;
+            b.classList.remove('theme-yellow','theme-blue','theme-orange');
+            if (!planType) return;
+            const t = (planType || '').toLowerCase();
+            if (t === 'virtual') b.classList.add('theme-blue');
+            else if (t === 'gladiadores') b.classList.add('theme-orange');
+            else b.classList.add('theme-yellow');
+        } catch (e) { console.error(e); }
+    }
 
         // Handle login
         function handleLogin(e) {
@@ -1148,7 +1862,7 @@ document.addEventListener('DOMContentLoaded', function() {
             // Check admin login
             if (email === ADMIN_EMAIL && password === ADMIN_PASSWORD) {
                 currentUser = { email, isAdmin: true };
-                localStorage.setItem('currentUser', JSON.stringify(currentUser));
+                saveData('currentUser', currentUser);
                 showMainApp();
                 return;
             }
@@ -1157,7 +1871,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const member = members.find(m => m.email === email && m.password === password);
             if (member) {
                 currentUser = { email, isAdmin: false, memberId: member.id };
-                localStorage.setItem('currentUser', JSON.stringify(currentUser));
+                saveData('currentUser', currentUser);
                 showMainApp();
             } else {
                 errorElement.textContent = 'Correo o contraseña inválidos';
@@ -1185,6 +1899,129 @@ function generateId() {
     // Use current timestamp and a random number for uniqueness
     return 'M' + Date.now().toString(36) + Math.floor(Math.random() * 1000).toString(36);
 }
+
+// Generic confirm modal helper
+function showConfirm(message, callback) {
+    const modal = document.getElementById('confirmModal');
+    if (!modal) {
+        // fallback to window.confirm
+        const ok = window.confirm(message);
+        try { callback(!!ok); } catch(e) { console.error(e); }
+        return;
+    }
+    const body = document.getElementById('confirmModalBody');
+    const title = document.getElementById('confirmModalTitle');
+    const okBtn = document.getElementById('confirmModalOk');
+    const cancelBtn = document.getElementById('cancelConfirm');
+    const closeBtn = document.getElementById('closeConfirmModal');
+    if (body) body.textContent = message;
+    if (title) title.textContent = 'Confirmar';
+    if (okBtn) okBtn.disabled = false;
+    if (cancelBtn) cancelBtn.disabled = false;
+    openModal(modal);
+
+    // debugging log
+    try { console.log('showConfirm opened:', message); } catch (e) {}
+
+    // single-use handlers (also assign to onclick to be robust against event listener replacement)
+    const onceOk = function() {
+        try { console.log('showConfirm: OK clicked'); } catch (e) {}
+        try { callback(true); } catch (err) { console.error(err); }
+        cleanup();
+    };
+    const onceCancel = function() {
+        try { console.log('showConfirm: Cancel clicked'); } catch (e) {}
+        try { callback(false); } catch (err) { console.error(err); }
+        cleanup();
+    };
+    function cleanup() {
+        try {
+            if (okBtn) { okBtn.removeEventListener('click', onceOk); okBtn.onclick = null; }
+            if (cancelBtn) { cancelBtn.removeEventListener('click', onceCancel); cancelBtn.onclick = null; }
+            if (closeBtn) { closeBtn.removeEventListener('click', onceCancel); closeBtn.onclick = null; }
+        } catch (e) { console.error(e); }
+        // animate close
+        closeModal(modal);
+    }
+    if (okBtn) { okBtn.addEventListener('click', onceOk, { once: true }); okBtn.onclick = onceOk; }
+    if (cancelBtn) { cancelBtn.addEventListener('click', onceCancel, { once: true }); cancelBtn.onclick = onceCancel; }
+    if (closeBtn) { closeBtn.addEventListener('click', onceCancel, { once: true }); closeBtn.onclick = onceCancel; }
+}
+// Expose helper globally so inline onclick handlers and other scopes can access it
+try { window.showConfirm = showConfirm; } catch (e) { /* non-browser envs ignore */ }
+
+// Safe wrapper to avoid ReferenceError when showConfirm isn't available yet.
+function confirmPrompt(message, callback) {
+    try {
+        if (typeof window !== 'undefined' && typeof window.showConfirm === 'function') {
+            window.showConfirm(message, callback);
+            return;
+        }
+    } catch (e) {
+        // ignore
+    }
+    // fallback to native confirm
+    const ok = window.confirm(message);
+    try { callback(!!ok); } catch(e) { console.error(e); }
+}
+// Also expose wrapper globally as a safety net
+try { window.confirmPrompt = confirmPrompt; } catch (e) { }
+
+// Toast helper
+function showToast(message, opts = {}) {
+    const container = document.getElementById('toastContainer');
+    if (!container) { console.log(message); return; }
+    const div = document.createElement('div');
+    div.className = 'toast';
+    // Prefer semantic type (success/error/info) mapped to CSS classes
+    if (opts && opts.type) {
+        if (opts.type === 'success') div.classList.add('toast-success');
+        else if (opts.type === 'error') div.classList.add('toast-error');
+        else if (opts.type === 'info') div.classList.add('toast-info');
+    }
+    // Fallback: allow raw colors if caller provides them (keeps compatibility)
+    if (opts && opts.background) div.style.background = opts.background;
+    if (opts && opts.color) div.style.color = opts.color;
+    div.textContent = message;
+    container.appendChild(div);
+    // trigger show class for animation
+    setTimeout(() => { try { div.classList.add('show'); } catch(e){} }, 20);
+    const remove = () => { try { div.classList.remove('show'); } catch(e){}; if (div.parentNode) div.parentNode.removeChild(div); };
+    setTimeout(() => { try { div.classList.remove('show'); } catch(e){} }, (opts.duration || 3000) - 150);
+    setTimeout(remove, opts.duration || 3000);
+}
+// Modal helpers: open/close with animation (uses CSS .show and .fade-out)
+function openModal(modal) {
+    if (!modal) return;
+    try {
+        modal.classList.remove('fade-out');
+        // small reflow to ensure animation restarts
+        void modal.offsetWidth;
+        modal.classList.add('show');
+    } catch (e) { console.error('openModal error', e); }
+}
+
+function closeModal(modal) {
+    if (!modal) return;
+    try {
+        // If already fading out or hidden, remove immediately
+        if (!modal.classList.contains('show')) return;
+        modal.classList.add('fade-out');
+        const cleanup = () => {
+            try { modal.classList.remove('show'); modal.classList.remove('fade-out'); } catch(e){}
+            modal.removeEventListener('animationend', cleanup);
+        };
+        modal.addEventListener('animationend', cleanup);
+        // Fallback: if animationend doesn't fire, force hide after 400ms
+        setTimeout(cleanup, 420);
+    } catch (e) { console.error('closeModal error', e); modal.classList.remove('show'); modal.classList.remove('fade-out'); }
+}
+
+function openModalById(id) { const m = document.getElementById(id); if (m) openModal(m); }
+function closeModalById(id) { const m = document.getElementById(id); if (m) closeModal(m); }
+// Expose helpers globally for inline handlers / older cached code
+try { window.openModal = openModal; window.closeModal = closeModal; window.openModalById = openModalById; window.closeModalById = closeModalById; } catch (e) {}
+
             const member = {
                 id: newId,
                 name: document.getElementById('regName').value,
@@ -1193,6 +2030,7 @@ function generateId() {
                 password: document.getElementById('regPassword').value,
                 dob: document.getElementById('regDob').value,
                 weight: parseFloat(document.getElementById('regWeight').value),
+                planType: document.getElementById('regPlanType') ? document.getElementById('regPlanType').value : 'in_person',
                 measurements: {
                     abdomen: parseFloat(document.getElementById('regAbdomen').value),
                     cintura: parseFloat(document.getElementById('regCintura').value),
@@ -1243,21 +2081,36 @@ function generateId() {
                     seArrollaRopa: false
                 }
             };
-
-            members.push(member);
-            localStorage.setItem('gymMembers', JSON.stringify(members));
-            
-            registerModal.classList.remove('show');
-            registerForm.reset();
-            
-            // If admin is registering, refresh the admin dashboard
-            if (currentUser?.isAdmin) {
-                renderMembersTable();
-                updateAdminStats();
+            // Persist new member (Firestore when enabled)
+            try {
+                if (typeof createMember === 'function') {
+                    createMember(member).then(() => {
+                        closeModal(registerModal);
+                        registerForm.reset();
+                        if (currentUser?.isAdmin) { try { renderMembersTable(); updateAdminStats(); } catch(e){} }
+                        showToast('¡Miembro registrado exitosamente!', { type: 'success' });
+                    }).catch(err => {
+                        console.error('createMember error', err);
+                        // fallback: add locally
+                        members.push(member); saveData('gymMembers', members);
+                        closeModal(registerModal); registerForm.reset();
+                        showToast('¡Miembro registrado localmente (Firestore error)!', { type: 'info' });
+                    });
+                } else {
+                    members.push(member);
+                    saveData('gymMembers', members);
+                    closeModal(registerModal);
+                    registerForm.reset();
+                    showToast('¡Miembro registrado exitosamente!', { type: 'success' });
+                }
+            } catch (e) {
+                console.error(e);
+                members.push(member);
+                saveData('gymMembers', members);
+                closeModal(registerModal);
+                registerForm.reset();
+                showToast('¡Miembro registrado exitosamente!', { type: 'success' });
             }
-            
-            // Success message (you can implement a toast notification here)
-            alert('¡Miembro registrado exitosamente!');
         }
 
         // =====================
@@ -1269,19 +2122,21 @@ function generateId() {
 function deleteMember() {
     const memberId = document.getElementById('editMemberId').value;
     if (!memberId) return;
-    if (!confirm('¿Estás seguro de que deseas eliminar este miembro? Esta acción no se puede deshacer.')) return;
-    const idx = members.findIndex(m => m.id === memberId);
-    if (idx === -1) return;
-    members.splice(idx, 1);
-    localStorage.setItem('gymMembers', JSON.stringify(members));
+    confirmPrompt('¿Estás seguro de que deseas eliminar este miembro? Esta acción no se puede deshacer.', function(ok) {
+        if (!ok) return;
+        const idx = members.findIndex(m => m.id === memberId);
+        if (idx === -1) return;
+        members.splice(idx, 1);
+    saveData('gymMembers', members);
     // Close the edit modal
     const editModal = document.getElementById('editModal');
-    if (editModal) editModal.classList.remove('show');
-    // Refresh admin table and stats
-    if (typeof renderMembersTable === 'function') renderMembersTable();
-    if (typeof updateAdminStats === 'function') updateAdminStats();
+    if (editModal) closeModal(editModal);
+        // Refresh admin table and stats
+        if (typeof renderMembersTable === 'function') renderMembersTable();
+        if (typeof updateAdminStats === 'function') updateAdminStats();
     // Optionally show a success message
-    alert('Miembro eliminado exitosamente.');
+    showToast('Miembro eliminado exitosamente.', { background: '#10b981' });
+    });
 }
 // View member details in modal (view-only mode)
 function viewMember(memberId) {
@@ -1294,6 +2149,8 @@ function viewMember(memberId) {
     document.getElementById('editEmail').value = member.email;
     document.getElementById('editDob').value = member.dob;
     document.getElementById('editWeight').value = member.weight;
+    const planTypeEl2 = document.getElementById('editPlanType');
+    if (planTypeEl2) planTypeEl2.value = member.planType || 'in_person';
     document.getElementById('editAbdomen').value = member.measurements.abdomen;
     document.getElementById('editCintura').value = member.measurements.cintura;
     document.getElementById('editCadera').value = member.measurements.cadera;
@@ -1309,17 +2166,17 @@ function viewMember(memberId) {
     const afterPreview = document.getElementById('editAfterPreview');
     if (member.images.before) {
         beforePreview.src = member.images.before;
-        beforePreview.style.display = 'block';
+        beforePreview.classList.add('show');
     } else {
         beforePreview.src = '';
-        beforePreview.style.display = 'none';
+        beforePreview.classList.remove('show');
     }
     if (member.images.after) {
         afterPreview.src = member.images.after;
-        afterPreview.style.display = 'block';
+        afterPreview.classList.add('show');
     } else {
         afterPreview.src = '';
-        afterPreview.style.display = 'none';
+        afterPreview.classList.remove('show');
     }
     // Set Factores de Salud values if present
     if (member.factoresSalud) {
@@ -1396,52 +2253,122 @@ function viewMember(memberId) {
         document.getElementById('seArrollaRopa').checked = false;
     }
     // Always set view mode: read-only, hide edit/cancel/save
-    setEditFormReadOnly(true);
-    document.querySelectorAll('.edit-only').forEach(el => el.style.display = 'none');
-    const editBtn = document.getElementById('enableEditBtn');
-    // Show Edit button only for admin
-    if (editBtn) {
-        if (currentUser && currentUser.isAdmin) {
-            editBtn.style.display = 'inline-block';
-            // Attach click handler to switch to edit mode
-            editBtn.onclick = function() {
-                setEditFormReadOnly(false);
-                document.querySelectorAll('.edit-only').forEach(el => el.style.display = 'inline-block');
-                editBtn.style.display = 'none';
-            };
-        } else {
-            editBtn.style.display = 'none';
-        }
-    }
+                    setEditFormReadOnly(true);
+                    document.querySelectorAll('.edit-only').forEach(el => el.classList.add('hidden'));
+                    const editBtn = document.getElementById('enableEditBtn');
+                    // Show Edit button only for admin
+                    if (editBtn) {
+                        if (currentUser && currentUser.isAdmin) {
+                            editBtn.classList.remove('hidden');
+                            // Attach click handler to switch to edit mode
+                            editBtn.onclick = function() {
+                                setEditFormReadOnly(false);
+                                document.querySelectorAll('.edit-only').forEach(el => el.classList.remove('hidden'));
+                                editBtn.classList.add('hidden');
+                            };
+                        } else {
+                            editBtn.classList.add('hidden');
+                        }
+                    }
     // Show the modal
-    document.getElementById('editModal').classList.add('show');
+    openModal(document.getElementById('editModal'));
 }
 function renderMembersTable() {
     // Render the members table in the admin dashboard
     const tbody = document.getElementById('membersTableBody');
     if (!tbody) return;
+    // Add a legend explaining plan colors (create if not exists)
+    try {
+        const legendId = 'planColorLegend';
+        let legend = document.getElementById(legendId);
+        const container = document.getElementById('miembrosTab');
+        if (container && !legend) {
+            legend = document.createElement('div');
+            legend.id = legendId;
+            legend.className = 'plan-legend';
+            legend.innerHTML = `
+                <span class="plan-legend-row">
+                    <span class="plan-legend-item"><span class="plan-legend-dot plan-dot-presencial"></span> Presencial</span>
+                    <span class="plan-legend-item"><span class="plan-legend-dot plan-dot-virtual"></span> Virtual</span>
+                    <span class="plan-legend-item"><span class="plan-legend-dot plan-dot-gladiadores"></span> Gladiadores</span>
+                </span>`;
+            container.insertBefore(legend, container.firstChild);
+        }
+    } catch (e) { /* ignore */ }
     tbody.innerHTML = '';
     if (!members || members.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#aaa;">Sin miembros registrados</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" class="text-center muted">Sin miembros registrados</td></tr>';
         return;
     }
     members.forEach(member => {
         const tr = document.createElement('tr');
+        // Insert a small colored badge for plan type next to the name
+        const dotClass = planTypeToDotClass(member.planType);
+        // avatar: if image present use img tag, otherwise initials
+        const avatarHtml = (member.images && member.images.before) ? `<span class="member-avatar"><img src="${member.images.before}" alt="${member.name}"/></span>` : `<span class="member-avatar">${getInitials(member.name)}</span>`;
         tr.innerHTML = `
             <td>${member.id}</td>
-            <td>${member.name}</td>
+            <td>${avatarHtml}<span class="member-name"><span class="plan-legend-dot ${dotClass} mr-8"></span>${member.name}</span></td>
             <td>${member.email}</td>
             <td>${member.phone}</td>
-            <td style="text-align:center;">${member.attendance ? member.attendance.length : 0}</td>
+            <td class="text-center">${member.attendance ? member.attendance.length : 0}</td>
             <td>
                 <div class="table-actions">
-                    <button class="btn btn-sm btn-secondary" onclick="viewMember('${member.id}')">Ver</button>
-                    <button class="btn btn-sm btn-primary" onclick="openMeasurementModal('${member.id}')">Mediciones</button>
+                    <button class="btn btn-sm btn-secondary" data-action="view" data-member-id="${member.id}">Ver</button>
+                    <button class="btn btn-sm btn-primary" data-action="measure" data-member-id="${member.id}">Mediciones</button>
                 </div>
             </td>
         `;
         tbody.appendChild(tr);
     });
+
+    // Attach a delegated click handler to tbody for member actions (single listener)
+    try {
+        // remove existing handler if any by replacing the node listener
+        const existing = tbody._delegatedClickAttached;
+        if (!existing) {
+            tbody.addEventListener('click', function(e) {
+                const btn = e.target.closest('button[data-action]');
+                if (!btn) return;
+                const action = btn.getAttribute('data-action');
+                const memberId = btn.getAttribute('data-member-id');
+                if (action === 'view') {
+                    try { viewMember(memberId); } catch (err) { console.error(err); }
+                } else if (action === 'measure') {
+                    try { openMeasurementModal(memberId); } catch (err) { console.error(err); }
+                }
+            });
+            tbody._delegatedClickAttached = true;
+        }
+    } catch (e) { console.error(e); }
+}
+
+// Helper: return color for plan type
+function getPlanColor(planType) {
+    switch ((planType || '').toLowerCase()) {
+        case 'virtual': return '#3b82f6'; // blue
+        case 'gladiadores': return '#fb923c'; // orange
+        case 'in_person':
+        case 'presencial':
+        default:
+            return '#facc15'; // yellow
+    }
+}
+
+// Map planType to CSS class for dot styling
+function planTypeToDotClass(planType) {
+    const t = (planType || '').toLowerCase();
+    if (t === 'virtual') return 'plan-dot-virtual';
+    if (t === 'gladiadores') return 'plan-dot-gladiadores';
+    return 'plan-dot-presencial';
+}
+
+// Helper: get initials from full name
+function getInitials(name) {
+    if (!name) return '';
+    const parts = name.trim().split(/\s+/);
+    if (parts.length === 1) return parts[0].substring(0,1).toUpperCase();
+    return (parts[0].substring(0,1) + parts[parts.length-1].substring(0,1)).toUpperCase();
 }
 
 function updateAdminStats() {
@@ -1478,7 +2405,7 @@ function renderComprasWinner() {
     const winnerData = JSON.parse(localStorage.getItem('comprasWinner'));
     if (winnerDiv) {
         if (winnerData && winnerData.name) {
-            winnerDiv.innerHTML = `<div style=\"background:#d1fae5;color:#065f46;padding:12px 18px;border-radius:12px;text-align:center;font-size:1.1em;font-weight:bold;\">🎉 Ganador: ${winnerData.name} (ID: ${winnerData.id})</div>`;
+            winnerDiv.innerHTML = `<div class="compra-winner">🎉 Ganador: ${winnerData.name} (ID: ${winnerData.id})</div>`;
         } else {
             winnerDiv.innerHTML = '';
         }
@@ -1488,7 +2415,7 @@ function renderComprasWinner() {
 function elegirGanador() {
     let comprasList = JSON.parse(localStorage.getItem('comprasList')) || [];
     if (!comprasList.length) {
-        alert('No hay compras registradas para elegir un ganador.');
+        showToast('No hay compras registradas para elegir un ganador.', { background: '#ef4444' });
         return;
     }
     let pool = [];
@@ -1498,13 +2425,13 @@ function elegirGanador() {
         }
     });
     if (!pool.length) {
-        alert('No hay suficientes compras para elegir un ganador.');
+        showToast('No hay suficientes compras para elegir un ganador.', { background: '#ef4444' });
         return;
     }
     const winner = pool[Math.floor(Math.random() * pool.length)];
-    localStorage.setItem('comprasWinner', JSON.stringify(winner));
+    try { saveData('comprasWinner', winner); } catch(e) { localStorage.setItem('comprasWinner', JSON.stringify(winner)); }
     renderComprasWinner();
-    alert(`¡Felicidades a ${winner.name} (ID: ${winner.id}) por ganar el sorteo de compras!`);
+    showToast(`¡Felicidades a ${winner.name} (ID: ${winner.id}) por ganar el sorteo de compras!`, { background: '#10b981', duration: 5000 });
 }
 
 function handleEditMember(e) {
@@ -1533,6 +2460,13 @@ function handleEditMember(e) {
         pantalon: document.getElementById('editPantalon').value,
         camisa: document.getElementById('editCamisa').value
     };
+    // Plan type (virtual or in_person)
+    const editPlanTypeEl = document.getElementById('editPlanType');
+    if (editPlanTypeEl) {
+        members[memberIdx].planType = editPlanTypeEl.value || 'in_person';
+    } else {
+        members[memberIdx].planType = members[memberIdx].planType || 'in_person';
+    }
     // Factores de Salud
     members[memberIdx].factoresSalud = {
         faltaEnergia: document.getElementById('faltaEnergia').checked,
@@ -1545,12 +2479,16 @@ function handleEditMember(e) {
     // Salud/Movilidad
     members[memberIdx].saludMovilidad = getSaludMovilidadFromForm();
     // Save to localStorage
-    localStorage.setItem('gymMembers', JSON.stringify(members));
+    saveData('gymMembers', members);
+    // If the edited member is currently logged in, re-render
+    if (currentUser && !currentUser.isAdmin && currentUser.memberId === members[memberIdx].id) {
+        renderMemberData(members[memberIdx]);
+    }
     // Return to view mode
     setEditFormReadOnly(true);
-    document.querySelectorAll('.edit-only').forEach(el => el.style.display = 'none');
+    document.querySelectorAll('.edit-only').forEach(el => el.classList.add('hidden'));
     const editBtn = document.getElementById('enableEditBtn');
-    if (editBtn) editBtn.style.display = 'inline-block';
+    if (editBtn) editBtn.classList.remove('hidden');
     // Show success message
     const successMsg = document.getElementById('editSuccess');
     if (successMsg) {
@@ -1565,6 +2503,13 @@ function handleEditMember(e) {
 
 function signOut() {
     // TODO: Sign out the current user and return to landing page
+    try {
+        const planLabel = document.getElementById('memberPlanLabel');
+        if (planLabel) {
+            planLabel.classList.add('hidden');
+            planLabel.innerHTML = '';
+        }
+    } catch (e) {}
     localStorage.removeItem('currentUser');
     location.reload();
 }
@@ -1574,7 +2519,7 @@ function signOut() {
 let qrScannerInstance = null;
 function openQRScanner() {
     const scannerModal = document.getElementById('scannerModal');
-    if (scannerModal) scannerModal.classList.add('show');
+    if (scannerModal) openModal(scannerModal);
     const qrReader = document.getElementById('qr-reader');
     if (!qrReader) return;
     // Clean up previous instance if any
@@ -1616,7 +2561,7 @@ function closeQRScanner() {
         qrReader.innerHTML = '';
     }
     const scannerModal = document.getElementById('scannerModal');
-    if (scannerModal) scannerModal.classList.remove('show');
+    if (scannerModal) closeModal(scannerModal);
 }
 
 // Handle QR scan result
@@ -1628,7 +2573,7 @@ function handleQRScan(decodedText) {
         // Add attendance
         if (!member.attendance) member.attendance = [];
         member.attendance.push(new Date().toISOString());
-        localStorage.setItem('gymMembers', JSON.stringify(members));
+    saveData('gymMembers', members);
         if (scanResult) scanResult.textContent = `✅ Asistencia agregada para ${member.name}`;
         // If the current user is the scanned member, update their dashboard
         if (currentUser && currentUser.email === member.email && typeof renderMemberData === 'function') {
@@ -1643,3 +2588,422 @@ function handleQRScan(decodedText) {
         if (scanResult) scanResult.textContent = '❌ Miembro no encontrado';
     }
 }
+
+// Render exercises list for admin
+function renderExercisesList() {
+    const container = document.getElementById('exercisesList');
+    if (!container) return;
+    if (!exercises.length) {
+    container.innerHTML = '<div class="muted-sm text-center">No hay ejercicios registrados</div>';
+        return;
+    }
+    container.innerHTML = '';
+    exercises.forEach(ex => {
+        const div = document.createElement('div');
+        div.className = 'exercise-item';
+    const left = document.createElement('div');
+    const assignedCount = countAssignedToExercise(ex.id);
+    const badgeHtml = assignedCount ? `<span class="assigned-badge">Asignados: ${assignedCount}</span>` : '';
+    left.innerHTML = `<strong>${ex.title}</strong>${badgeHtml}<div class="muted-sm">${ex.description || ''}</div>`;
+    const actions = document.createElement('div');
+    actions.className = 'exercise-actions';
+        const viewBtn = document.createElement('button');
+        viewBtn.className = 'btn btn-sm btn-secondary';
+        viewBtn.textContent = 'Ver';
+        viewBtn.setAttribute('data-action', 'view');
+        viewBtn.setAttribute('data-ex-id', ex.id);
+        const editBtn = document.createElement('button');
+        editBtn.className = 'btn btn-sm btn-primary';
+        editBtn.textContent = 'Editar';
+        editBtn.setAttribute('data-action', 'edit');
+        editBtn.setAttribute('data-ex-id', ex.id);
+        const delBtn = document.createElement('button');
+        delBtn.className = 'btn btn-sm btn-danger';
+        delBtn.textContent = 'Eliminar';
+        delBtn.setAttribute('data-action', 'delete');
+        delBtn.setAttribute('data-ex-id', ex.id);
+        const unassignBtn = document.createElement('button');
+        unassignBtn.className = 'btn btn-sm btn-secondary';
+        unassignBtn.textContent = 'Desasignar';
+        unassignBtn.setAttribute('data-action', 'unassign');
+        unassignBtn.setAttribute('data-ex-id', ex.id);
+    const editAssignBtn = document.createElement('button');
+    editAssignBtn.className = 'btn btn-sm btn-primary';
+    editAssignBtn.textContent = 'Editar Asign.';
+    editAssignBtn.setAttribute('data-action', 'edit-assign');
+    editAssignBtn.setAttribute('data-ex-id', ex.id);
+        actions.appendChild(viewBtn);
+        actions.appendChild(editBtn);
+    actions.appendChild(delBtn);
+    actions.appendChild(unassignBtn);
+    actions.appendChild(editAssignBtn);
+    const row = document.createElement('div');
+    row.className = 'exercise-row';
+        row.appendChild(left);
+        row.appendChild(actions);
+        div.appendChild(row);
+        container.appendChild(div);
+    });
+
+    // Delegated handler for exercise actions
+    try {
+        const list = container;
+        if (list && !list._delegatedExerciseHandler) {
+            list.addEventListener('click', function(e) {
+                const btn = e.target.closest('button[data-action]');
+                if (!btn) return;
+                const action = btn.getAttribute('data-action');
+                const exId = btn.getAttribute('data-ex-id');
+                if (action === 'view') {
+                    try { openExercisePreview(exId); } catch (err) { console.error(err); }
+                } else if (action === 'edit') {
+                    try { editExercise(exId); } catch (err) { console.error(err); }
+                } else if (action === 'delete') {
+                    try {
+                        confirmPrompt('Eliminar ejercicio? Esta acción eliminará la asignación a miembros.', function(ok) {
+                            if (ok) deleteExercise(exId);
+                        });
+                    } catch (err) { console.error(err); }
+                } else if (action === 'unassign') {
+                    try { openUnassignModal(exId); } catch (err) { console.error(err); }
+                } else if (action === 'edit-assign') {
+                    try { openEditAssignmentModal(exId); } catch (err) { console.error(err); }
+                }
+            });
+            list._delegatedExerciseHandler = true;
+        }
+    } catch (e) { console.error(e); }
+}
+
+// Edit exercise (simple prompt-based editor)
+// Open edit exercise modal
+function editExercise(id) {
+    const ex = exercises.find(e => e.id === id);
+    if (!ex) return;
+    // populate modal fields
+    document.getElementById('editExerciseId').value = ex.id;
+    document.getElementById('editExerciseTitle').value = ex.title || '';
+    document.getElementById('editExerciseDescription').value = ex.description || '';
+    document.getElementById('editExerciseVideo').value = ex.video || '';
+    // clear messages
+    document.getElementById('editExerciseError').textContent = '';
+    document.getElementById('editExerciseSuccess').textContent = '';
+    // ensure save button visible (not preview mode)
+    const saveBtn = document.getElementById('editExerciseSaveBtn');
+    if (saveBtn) saveBtn.classList.remove('hidden');
+    // populate preview
+    updateEditExercisePreview(ex.video);
+    // show modal
+    const modal = document.getElementById('editExerciseModal');
+    if (modal) openModal(modal);
+}
+
+// Save handler for edit exercise form
+document.getElementById('editExerciseForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const id = document.getElementById('editExerciseId').value;
+    const title = document.getElementById('editExerciseTitle').value.trim();
+    const desc = document.getElementById('editExerciseDescription').value.trim();
+    const video = document.getElementById('editExerciseVideo').value.trim();
+    if (!title) {
+        document.getElementById('editExerciseError').textContent = 'El título es requerido.';
+        return;
+    }
+    const ex = exercises.find(e => e.id === id);
+    if (!ex) return;
+    ex.title = title;
+    ex.description = desc;
+    ex.video = video;
+    saveExercises();
+    renderExercisesList();
+    document.getElementById('editExerciseSuccess').textContent = 'Cambios guardados.';
+    setTimeout(() => {
+        const modal = document.getElementById('editExerciseModal');
+        if (modal) closeModal(modal);
+    }, 600);
+});
+
+// Cancel/close handlers for edit exercise modal
+document.getElementById('cancelEditExercise').addEventListener('click', function() {
+    const modal = document.getElementById('editExerciseModal'); if (modal) closeModal(modal);
+});
+document.getElementById('closeEditExerciseModal').addEventListener('click', function() { const modal = document.getElementById('editExerciseModal'); if (modal) closeModal(modal); });
+
+// Update preview in edit exercise modal
+function updateEditExercisePreview(videoUrl) {
+    const preview = document.getElementById('editExercisePreview');
+    if (!preview) return;
+    preview.innerHTML = '';
+    if (!videoUrl) {
+        preview.textContent = '';
+        return;
+    }
+    const ytMatch = videoUrl.match(/(?:youtube.com\/watch\?v=|youtu.be\/)([A-Za-z0-9_-]+)/);
+    if (ytMatch && ytMatch[1]) {
+        const iframe = document.createElement('iframe');
+        iframe.className = 'exercise-video';
+        iframe.src = `https://www.youtube.com/embed/${ytMatch[1]}`;
+        iframe.frameBorder = '0';
+        iframe.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture';
+        iframe.allowFullscreen = true;
+        preview.appendChild(iframe);
+    } else {
+        const videoEl = document.createElement('video');
+        videoEl.className = 'exercise-video';
+        videoEl.controls = true;
+        const src = document.createElement('source');
+        src.src = videoUrl;
+        videoEl.appendChild(src);
+        preview.appendChild(videoEl);
+    }
+}
+
+// Live update preview when video input changes
+const editExerciseVideoInput = document.getElementById('editExerciseVideo');
+if (editExerciseVideoInput) {
+    editExerciseVideoInput.addEventListener('input', function() {
+        updateEditExercisePreview(this.value.trim());
+    });
+}
+
+function deleteExercise(id) {
+    console.log('deleteExercise called with id:', id);
+    exercises = exercises.filter(e => e.id !== id);
+    // remove from members
+    members.forEach(m => {
+        if (Array.isArray(m.assignedExercises)) {
+            m.assignedExercises = m.assignedExercises.filter(a => (typeof a === 'string' ? a !== id : a.id !== id));
+        }
+    });
+    saveData('gymMembers', members);
+    saveExercises();
+    renderExercisesList();
+}
+
+// Open unassign modal (simple) - choose members to unassign
+function openUnassignModal(exId) {
+    // use modal to unassign exercise from members
+    const assignedMembers = members.filter(m => Array.isArray(m.assignedExercises) && m.assignedExercises.some(a => (typeof a === 'string' ? a === exId : a.id === exId)));
+    if (!assignedMembers.length) { showToast('No hay miembros asignados a este ejercicio.', { background: '#ef4444' }); return; }
+    // populate modal info
+    document.getElementById('unassignExerciseId').value = exId;
+    const ex = exercises.find(e => e.id === exId);
+    document.getElementById('unassignExerciseInfo').textContent = ex ? `${ex.title}` : 'Ejercicio';
+    const sel = document.getElementById('unassignMemberSelect');
+    sel.innerHTML = '<option value="">-- Desasignar a todos --</option>';
+    assignedMembers.forEach(m => {
+        // try to find the assigned entry to show sets/reps
+        const assignedEntry = m.assignedExercises.find(a => (typeof a === 'string' ? a === exId : a.id === exId));
+        let extra = '';
+        if (assignedEntry && typeof assignedEntry === 'object') {
+            extra = ` - ${assignedEntry.sets || '-'}x${assignedEntry.reps || '-'}`;
+        }
+        sel.innerHTML += `<option value="${m.id}">${m.name} (${m.id})${extra}</option>`;
+    });
+    document.getElementById('unassignExerciseError').textContent = '';
+    document.getElementById('unassignExerciseSuccess').textContent = '';
+    const modal = document.getElementById('unassignExerciseModal'); if (modal) openModal(modal);
+}
+
+// Open Edit Assignment modal for a specific exercise
+function openEditAssignmentModal(exId) {
+    document.getElementById('editAssignExerciseId').value = exId;
+    const sel = document.getElementById('editAssignMemberSelect');
+    sel.innerHTML = '';
+    // find members who have this exercise assigned
+    const assignedMembers = members.filter(m => Array.isArray(m.assignedExercises) && m.assignedExercises.some(a => (typeof a === 'string' ? a === exId : a.id === exId)));
+    if (!assignedMembers.length) {
+        showToast('No hay miembros asignados a este ejercicio.', { background: '#ef4444' });
+        return;
+    }
+    assignedMembers.forEach(m => {
+        const assignedEntry = m.assignedExercises.find(a => (typeof a === 'string' ? a === exId : a.id === exId));
+        const extra = (assignedEntry && typeof assignedEntry === 'object') ? ` - ${assignedEntry.sets || '-'}x${assignedEntry.reps || '-'}` : '';
+        sel.innerHTML += `<option value="${m.id}">${m.name} (${m.id})${extra}</option>`;
+    });
+    // default sets/reps based on first member
+    const first = assignedMembers[0];
+    const firstEntry = first.assignedExercises.find(a => (typeof a === 'string' ? a === exId : a.id === exId));
+    const setsEl = document.getElementById('editAssignSets');
+    const repsEl = document.getElementById('editAssignReps');
+    if (firstEntry && typeof firstEntry === 'object') {
+        if (setsEl) setsEl.value = firstEntry.sets || 3;
+        if (repsEl) repsEl.value = firstEntry.reps || 10;
+    } else {
+        if (setsEl) setsEl.value = 3;
+        if (repsEl) repsEl.value = 10;
+    }
+    document.getElementById('editAssignError').textContent = '';
+    document.getElementById('editAssignSuccess').textContent = '';
+    const modal = document.getElementById('editAssignmentModal'); if (modal) openModal(modal);
+}
+
+// Save edited assignment (sets/reps) for selected member
+document.getElementById('saveEditAssignment').addEventListener('click', function() {
+    const exId = document.getElementById('editAssignExerciseId').value;
+    const memberId = document.getElementById('editAssignMemberSelect').value;
+    const sets = parseInt(document.getElementById('editAssignSets')?.value || '3', 10) || 3;
+    const reps = parseInt(document.getElementById('editAssignReps')?.value || '10', 10) || 10;
+    if (!exId || !memberId) {
+        document.getElementById('editAssignError').textContent = 'Selecciona un miembro.';
+        return;
+    }
+    // update the specific assigned entry
+    const mIdx = members.findIndex(m => m.id === memberId);
+    if (mIdx === -1) { document.getElementById('editAssignError').textContent = 'Miembro no encontrado.'; return; }
+    if (!Array.isArray(members[mIdx].assignedExercises)) { document.getElementById('editAssignError').textContent = 'No hay asignaciones para este miembro.'; return; }
+    const aIdx = members[mIdx].assignedExercises.findIndex(a => (typeof a === 'string' ? a === exId : a.id === exId));
+    if (aIdx === -1) { document.getElementById('editAssignError').textContent = 'Asignación no encontrada.'; return; }
+    // Replace legacy string with object if needed
+    if (typeof members[mIdx].assignedExercises[aIdx] === 'string') {
+        members[mIdx].assignedExercises[aIdx] = { id: exId, sets, reps };
+    } else {
+        members[mIdx].assignedExercises[aIdx].sets = sets;
+        members[mIdx].assignedExercises[aIdx].reps = reps;
+    }
+    saveData('gymMembers', members);
+    document.getElementById('editAssignSuccess').textContent = 'Asignación actualizada.';
+    setTimeout(() => {
+        const modal = document.getElementById('editAssignmentModal'); if (modal) closeModal(modal);
+        try { renderExercisesList(); } catch (e) {}
+    }, 700);
+});
+
+document.getElementById('cancelEditAssignment').addEventListener('click', function() { const modal = document.getElementById('editAssignmentModal'); if (modal) closeModal(modal); });
+document.getElementById('closeEditAssignmentModal').addEventListener('click', function() { const modal = document.getElementById('editAssignmentModal'); if (modal) closeModal(modal); });
+
+// Confirm unassign (modal)
+document.getElementById('confirmUnassignExercise').addEventListener('click', function() {
+    const exId = document.getElementById('unassignExerciseId').value;
+    const memberId = document.getElementById('unassignMemberSelect').value;
+    if (!exId) return;
+    if (!memberId) {
+        // unassign from all
+        members.forEach(m => {
+            if (Array.isArray(m.assignedExercises)) m.assignedExercises = m.assignedExercises.filter(a => (typeof a === 'string' ? a !== exId : a.id !== exId));
+        });
+    saveData('gymMembers', members);
+        document.getElementById('unassignExerciseSuccess').textContent = 'Desasignado de todos los miembros.';
+    setTimeout(() => { const modal = document.getElementById('unassignExerciseModal'); if (modal) closeModal(modal); renderExercisesList(); }, 800);
+        return;
+    }
+    const ok = unassignExerciseFromMember(exId, memberId);
+    if (ok) {
+        document.getElementById('unassignExerciseSuccess').textContent = 'Desasignado.';
+    setTimeout(() => { const modal = document.getElementById('unassignExerciseModal'); if (modal) closeModal(modal); renderExercisesList(); }, 600);
+    } else {
+        document.getElementById('unassignExerciseError').textContent = 'Error al desasignar.';
+    }
+});
+
+document.getElementById('cancelUnassignExercise').addEventListener('click', function() { const modal = document.getElementById('unassignExerciseModal'); if (modal) closeModal(modal); });
+document.getElementById('closeUnassignExerciseModal').addEventListener('click', function() { const modal = document.getElementById('unassignExerciseModal'); if (modal) closeModal(modal); });
+
+function unassignExerciseFromMember(exId, memberId) {
+    const mIdx = members.findIndex(m => m.id === memberId);
+    if (mIdx === -1) return false;
+    if (!Array.isArray(members[mIdx].assignedExercises)) return false;
+    members[mIdx].assignedExercises = members[mIdx].assignedExercises.filter(a => (typeof a === 'string' ? a !== exId : a.id !== exId));
+    saveData('gymMembers', members);
+    return true;
+}
+
+// Add exercise
+function addExercise(ex) {
+    exercises.push(ex);
+    saveExercises();
+    renderExercisesList();
+}
+
+// Assign exercise to member
+function assignExerciseToMember(exId, memberId, setsArg, repsArg) {
+    const mIdx = members.findIndex(m => m.id === memberId);
+    if (mIdx === -1) return false;
+    if (!Array.isArray(members[mIdx].assignedExercises)) members[mIdx].assignedExercises = [];
+    // determine sets/reps to use
+    const sets = (typeof setsArg === 'number' && setsArg > 0) ? setsArg : (parseInt(document.getElementById('assignSetsInput')?.value || '3', 10) || 3);
+    const reps = (typeof repsArg === 'number' && repsArg > 0) ? repsArg : (parseInt(document.getElementById('assignRepsInput')?.value || '10', 10) || 10);
+    // avoid duplicate assignment for same exercise id
+    const alreadyIdx = members[mIdx].assignedExercises.findIndex(a => (typeof a === 'string' ? a === exId : a.id === exId));
+    if (alreadyIdx === -1) {
+        members[mIdx].assignedExercises.push({ id: exId, sets, reps });
+    } else {
+        // update reps/sets if already assigned
+        const already = members[mIdx].assignedExercises[alreadyIdx];
+        if (typeof already === 'string') {
+            // replace legacy string with object
+            members[mIdx].assignedExercises[alreadyIdx] = { id: exId, sets, reps };
+        } else {
+            already.sets = sets;
+            already.reps = reps;
+        }
+    }
+    saveData('gymMembers', members);
+    // If the assigned member is currently logged in, re-render their dashboard
+    if (currentUser && !currentUser.isAdmin && currentUser.memberId === memberId && typeof renderMemberData === 'function') {
+        const member = members.find(m => m.id === memberId);
+        if (member) renderMemberData(member);
+    }
+    // refresh admin exercises list so assigned counts update
+    try { renderExercisesList(); } catch (e) {}
+    return true;
+}
+
+// Helper: count how many members have this exercise assigned
+function countAssignedToExercise(exId) {
+    let cnt = 0;
+    members.forEach(m => {
+        if (!Array.isArray(m.assignedExercises)) return;
+        const found = m.assignedExercises.some(a => (typeof a === 'string' ? a === exId : a.id === exId));
+        if (found) cnt++;
+    });
+    return cnt;
+}
+
+// Open exercise preview (simple) - global for inline onclick
+function openExercisePreview(id) {
+    const ex = exercises.find(e => e.id === id);
+    if (!ex) return;
+    // Populate edit modal fields for preview
+    document.getElementById('editExerciseId').value = ex.id;
+    document.getElementById('editExerciseTitle').value = ex.title || '';
+    document.getElementById('editExerciseDescription').value = ex.description || '';
+    document.getElementById('editExerciseVideo').value = ex.video || '';
+    // Populate preview area
+    const preview = document.getElementById('editExercisePreview');
+    if (preview) {
+        preview.innerHTML = '';
+        if (ex.video) {
+            const ytMatch = ex.video.match(/(?:youtube.com\/watch\?v=|youtu.be\/)([A-Za-z0-9_-]+)/);
+            if (ytMatch && ytMatch[1]) {
+                const iframe = document.createElement('iframe');
+                iframe.className = 'exercise-video';
+                iframe.src = `https://www.youtube.com/embed/${ytMatch[1]}`;
+                iframe.frameBorder = '0';
+                iframe.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture';
+                iframe.allowFullscreen = true;
+                preview.appendChild(iframe);
+            } else {
+                const videoEl = document.createElement('video');
+                videoEl.className = 'exercise-video';
+                videoEl.controls = true;
+                const src = document.createElement('source');
+                src.src = ex.video;
+                videoEl.appendChild(src);
+                preview.appendChild(videoEl);
+            }
+        } else {
+            preview.textContent = 'No hay video disponible para este ejercicio';
+        }
+    }
+    // Show modal in preview mode (disable save)
+    const saveBtn = document.getElementById('editExerciseSaveBtn');
+    if (saveBtn) {
+        saveBtn.classList.add('hidden');
+    }
+    document.getElementById('editExerciseError').textContent = '';
+    document.getElementById('editExerciseSuccess').textContent = '';
+    const modal = document.getElementById('editExerciseModal');
+    if (modal) openModal(modal);
+}
+window.openExercisePreview = openExercisePreview;

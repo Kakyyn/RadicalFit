@@ -11,13 +11,30 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>Radical Fit</title>
     <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.1/build/qrcode.min.js"></script>
-    <script src="https://unpkg.com/html5-qrcode@2.3.7/minified/html5-qrcode.min.js"></script>
+    <!-- html5-qrcode CDN was returning 404 for some versions; provide a safe feature-detect stub as fallback -->
+    <script>
+        (function() {
+            // If Html5Qrcode is already loaded by a valid script, do nothing
+            if (typeof window.Html5Qrcode !== 'undefined') return;
+            // Otherwise provide a lightweight stub that mirrors the API used in main.js
+            function StubHtml5Qrcode(elementId) {
+                this._elementId = elementId;
+            }
+            StubHtml5Qrcode.prototype.start = function(constraints, config, qrSuccessCallback, qrErrorCallback) {
+                // Return a rejected promise to simulate inability to start camera
+                return Promise.reject(new Error('Html5Qrcode library not available. Scanning is disabled.'));
+            };
+            StubHtml5Qrcode.prototype.stop = function() { return Promise.resolve(); };
+            StubHtml5Qrcode.prototype.clear = function() { return Promise.resolve(); };
+            window.Html5Qrcode = StubHtml5Qrcode;
+        })();
+    </script>
 </head>
 <body>
     <!-- Landing Page -->
     <div id="landingPage" class="landing-container">
         <div class="landing-content">
-            <img src="https://raw.githubusercontent.com/Kakyyn/RadicalFit/5e7e4575e3f7dab9ac0cf03d74d527b9cb3d1c07/logo.png" alt="Radical Fit Logo" style="width:346px;height:160px;border-radius:28px;display:block;margin:0 auto 18px auto;">
+            <img src="https://raw.githubusercontent.com/Kakyyn/RadicalFit/5e7e4575e3f7dab9ac0cf03d74d527b9cb3d1c07/logo.png" alt="Radical Fit Logo" class="logo-landing-img">
             <p class="landing-subtitle">Transforma tu cuerpo.</p>
             
             <div class="landing-tabs">
@@ -64,7 +81,7 @@
                         <label class="form-label">Contraseña</label>
                         <input type="password" class="form-input" id="loginPassword" required>
                     </div>
-                    <button type="submit" class="btn btn-primary" style="width: 100%;">Iniciar Sesión</button>
+                    <button type="submit" class="btn btn-primary btn-block">Iniciar Sesión</button>
                     <div id="loginError" class="error-message"></div>
                 </form>
             </div>
@@ -78,18 +95,18 @@
     <!-- Main App -->
     <div id="mainApp" class="app-container hidden">
         <!-- Hamburger menu button (moved here) -->
-        <button class="menu-toggle" id="menuToggleBtn" style="position:fixed;top:16px;left:16px;z-index:1100;">☰</button>
+    <button class="menu-toggle" id="menuToggleBtn">☰</button>
         <!-- Sidebar -->
         <aside class="sidebar">
-            <div class="logo" style="display:flex;flex-direction:column;align-items:center;gap:8px;">
-                <img src="https://raw.githubusercontent.com/Kakyyn/RadicalFit/5e7e4575e3f7dab9ac0cf03d74d527b9cb3d1c07/logo.png" alt="Radical Fit Logo" style="width:240px;height:100px;object-fit:contain;">
+            <div class="logo">
+                <img src="https://raw.githubusercontent.com/Kakyyn/RadicalFit/5e7e4575e3f7dab9ac0cf03d74d527b9cb3d1c07/logo.png" alt="Radical Fit Logo" class="sidebar-logo-img">
             </div>
             <nav>
                 <ul class="nav-menu" id="navMenu">
                     <!-- Navigation items will be populated by JavaScript -->
                 </ul>
-                <div style="margin: 32px 0 0 0; display: flex; justify-content: center;">
-                    <button id="signOutBtn" class="btn btn-danger" style="min-width: 160px; background: #ef4444; color: #fff; border: none;">Cerrar Sesión</button>
+                <div class="signout-wrap">
+                    <button id="signOutBtn" class="btn btn-danger signout-btn">Cerrar Sesión</button>
                 </div>
             </nav>
         </aside>
@@ -97,15 +114,16 @@
         <!-- Main Content -->
         <main class="main-content">
             <header class="header">
-                <h1 class="page-title" id="pageTitle">Tablero</h1>
+                <h1 class="page-title" id="pageTitle">Tablero <span id="memberPlanLabel" class="plan-label hidden"></span></h1>
                 <div class="user-info">
                     <span id="userEmail"></span>
+                    <span id="syncStatus" class="muted-sm ml-12" style="margin-left:12px;">Sync: local</span>
                 </div>
             </header>
 
             <!-- Member Dashboard -->
             <div id="memberDashboard" class="hidden">
-                <div id="weighinReminder" style="display:none; margin-bottom: 18px;"></div>
+                <div id="weighinReminder" class="weighin-reminder"></div>
                 <div class="card-grid">
                     <div class="stat-card">
                         <div class="stat-icon">👤</div>
@@ -133,8 +151,8 @@
                         <h3 class="card-title">Tu Código QR</h3>
                     </div>
                     <div class="qr-container" id="memberProfileQR"></div>
-                    <div id="weighinReminder" style="display:none; margin: 18px 0 0 0;"></div>
-                    <p style="text-align: center; color: #9ca3af;">Muestra este código QR para la asistencia</p>
+                    <div id="weighinReminder" class="weighin-reminder"></div>
+                    <p class="qr-note">Muestra este código QR para la asistencia</p>
                 </div>
 
                 <div id="profileTab" class="card hidden">
@@ -166,9 +184,9 @@
                     </div>
                     
                     <!-- Original Measurements (Registration Data) -->
-                    <div style="margin-bottom: 20px;">
-                        <h4 style="color: #FFD600; margin-bottom: 10px;">📏 Mediciones Iniciales (Registro)</h4>
-                        <div id="originalMeasurements" style="background: #2a2a2a; padding: 15px; border-radius: 8px; border-left: 4px solid #FFD600;">
+                    <div class="mt-16">
+                        <h4 class="section-title-yellow">📏 Mediciones Iniciales (Registro)</h4>
+                        <div id="originalMeasurements" class="orig-measurements">
                             <div><strong>Fecha de Registro:</strong> <span id="memberRegistrationDate"></span></div>
                             <div><strong>Peso:</strong> <span id="memberOriginalWeight"></span></div>
                             <div><strong>Abdomen:</strong> <span id="memberOriginalAbdomen"></span></div>
@@ -182,11 +200,19 @@
 
                     <!-- Measurement History -->
                     <div>
-                        <h4 style="color: #FFD600; margin-bottom: 10px;">📊 Historial de Mediciones</h4>
-                        <div id="measurementHistory" style="max-height: 400px; overflow-y: auto;">
-                            <p style="color: #aaa; text-align: center; padding: 20px;">No hay mediciones adicionales registradas</p>
+                        <h4 class="section-title-yellow">📊 Historial de Mediciones</h4>
+                        <div id="measurementHistory" class="measurement-history">
+                            <p class="muted muted-centered">No hay mediciones adicionales registradas</p>
                         </div>
                     </div>
+                    
+                </div>
+
+                <div id="ejerciciosMemberTab" class="card hidden">
+                    <div class="card-header">
+                        <h3 class="card-title">Ejercicios Asignados</h3>
+                    </div>
+                    <div id="memberEjerciciosList" class="member-exercises-list"></div>
                 </div>
 
                 <div id="progressTab" class="card hidden">
@@ -236,7 +262,7 @@
                                 <th>Nombre</th>
                                 <th>Correo Electrónico</th>
                                 <th>Teléfono</th>
-                                <th style="text-align:center;">Asistencia</th>
+                                <th class="text-center">Asistencia</th>
                                 <th>Acciones</th>
                             </tr>
                         </thead>
@@ -245,8 +271,20 @@
                     </table>
                 </div>
 
+                <!-- Ejercicios admin tab -->
+                <div class="card hidden" id="ejerciciosTab" class="mt-32">
+                    <div class="card-header">
+                        <h3 class="card-title">Ejercicios (Admin)</h3>
+                        <div class="btn-group">
+                            <button id="addExerciseBtn" class="btn btn-primary">Agregar Ejercicio</button>
+                            <button id="assignExerciseBtn" class="btn btn-secondary">Asignar a Miembro</button>
+                        </div>
+                    </div>
+                    <div id="exercisesList" class="exercises-list"></div>
+                </div>
+
                 <!-- Compras Tab Content -->
-                <div class="card hidden" id="comprasTab" style="margin-top:32px;">
+                <div class="card hidden" id="comprasTab" class="mt-32">
                     <div class="card-header">
                         <h3 class="card-title">Compras</h3>
                         <div class="btn-group">
@@ -254,8 +292,8 @@
                             <button id="elegirGanadorBtn" class="btn btn-success">Elegir ganador</button>
                         </div>
                     </div>
-                    <div id="comprasWinner" style="margin:12px 0 16px 0;"></div>
-                    <ul id="comprasList" style="min-height:40px;list-style:none;padding:0;margin:0 0 12px 0;"></ul>
+                    <div id="comprasWinner" class="compras-winner-wrap"></div>
+                    <ul id="comprasList" class="compras-list"></ul>
                 </div>
 
                 <!-- Purchase Modal -->
@@ -265,27 +303,29 @@
                             <h2 class="modal-title">Registrar Compra</h2>
                             <button class="close-btn" id="closePurchaseModal">&times;</button>
                         </div>
-                        <div style="margin: 16px 0; text-align: center;">
-                            <input id="purchaseManualIdInput" type="text" placeholder="Ingresar ID o nombre de miembro" style="padding:8px; border-radius:6px; border:1px solid #ccc; width: 220px;">
-                            <button id="purchaseManualIdBtn" class="btn btn-primary btn-sm" style="margin-left:8px;">Registrar</button>
+                        <div class="center-block">
+                            <input id="purchaseManualIdInput" type="text" placeholder="Ingresar ID o nombre de miembro" class="purchase-input">
+                            <button id="purchaseManualIdBtn" class="btn btn-primary btn-sm ml-8">Registrar</button>
                         </div>
-                        <div id="purchaseResult" class="success-message" style="text-align: center; margin-top: 16px;"></div>
+                        <div id="purchaseResult" class="success-message center-mt-16"></div>
                     </div>
                 </div>
                 </div>
-                <div class="card hidden" id="ajustesTab" style="margin-top:32px;">
+                <div class="card hidden" id="ajustesTab" class="mt-32">
                     <div class="card-header">
                         <h3 class="card-title">Ajustes</h3>
                     </div>
-                    <div style="display:flex;flex-direction:column;align-items:center;gap:18px;margin:32px 0 24px 0;">
-                        <button id="resetAllBtn" class="btn btn-danger" style="min-width:220px;background:#ef4444;color:#fff;">Eliminar todos los datos</button>
-                        <button id="exportDataBtn" class="btn btn-secondary" style="display:inline-block;min-width:220px;text-align:center;cursor:pointer;">Exportar datos</button>
-                        <label for="importDataInput" style="min-width:220px;">
-                            <input id="importDataInput" type="file" accept="application/json" style="display:none;">
-                            <span class="btn btn-secondary" style="width:100%;display:inline-block;text-align:center;cursor:pointer;">Importar datos</span>
+                    <div class="center-flex-col">
+                        <button id="resetAllBtn" class="btn btn-danger btn-wide">Eliminar todos los datos</button>
+                        <button id="exportDataBtn" class="btn btn-secondary btn-wide">Exportar datos</button>
+                        <button id="migrateBtn" class="btn btn-primary btn-wide mt-12">Migrar a Firestore</button>
+                        <label for="importDataInput">
+                            <input id="importDataInput" type="file" accept="application/json" class="hidden">
+                            <span class="btn btn-secondary btn-wide">Importar datos</span>
                         </label>
                     </div>
-                    <div id="settingsMessage" class="error-message" style="margin-top:16px;text-align:center;"></div>
+                    <div id="migrationStatus" class="muted-sm mt-12" style="text-align:center;"></div>
+                    <div id="settingsMessage" class="error-message mt-16 text-center"></div>
                 </div>
             </div>
         </main>
@@ -324,9 +364,17 @@
                         <label class="form-label">Peso (kg)</label>
                         <input type="number" class="form-input" id="regWeight" step="0.1" required>
                     </div>
+                    <div class="form-group">
+                        <label class="form-label">Tipo de Plan</label>
+                        <select class="form-input" id="regPlanType">
+                            <option value="in_person">Presencial</option>
+                            <option value="virtual">Virtual</option>
+                            <option value="gladiadores">Gladiadores</option>
+                        </select>
+                    </div>
                 </div>
 
-                <h4 style="margin: 24px 0 16px 0; color: #ffffff;">Medidas Corporales (cm)</h4>
+                <h4 class="section-title">Medidas Corporales (cm)</h4>
                 <div class="form-grid">
                     <div class="form-group">
                         <label class="form-label">Abdomen</label>
@@ -354,7 +402,7 @@
                     </div>
                 </div>
 
-                <h4 style="margin: 24px 0 16px 0; color: #ffffff;">Medidas de Ropa</h4>
+                <h4 class="section-title">Medidas de Ropa</h4>
                 <div class="form-grid">
                     <div class="form-group">
                         <label class="form-label">Pantalón</label>
@@ -383,16 +431,16 @@
                 <button class="close-btn" id="closeEditModal">&times;</button>
             </div>
             <!-- Modal Tab Bar -->
-            <div class="member-tabs-scroll" style="display: flex; overflow-x: auto; gap: 8px; margin-bottom: 18px;">
-                <button type="button" class="btn btn-sm btn-secondary member-tab-btn active" data-tab="datosTab" style="min-width:90px;">Datos</button>
-                <button type="button" class="btn btn-sm btn-secondary member-tab-btn" data-tab="factoresSaludTab" style="min-width:120px;">Factores de Salud</button>
-                <button type="button" class="btn btn-sm btn-secondary member-tab-btn" data-tab="saludMovilidadTab" style="min-width:120px;">Salud/Movilidad</button>
+            <div class="member-tabs-scroll">
+                <button type="button" class="btn btn-sm btn-secondary member-tab-btn active tab-min-w-90" data-tab="datosTab">Datos</button>
+                <button type="button" class="btn btn-sm btn-secondary member-tab-btn tab-min-w-120" data-tab="factoresSaludTab">Factores de Salud</button>
+                <button type="button" class="btn btn-sm btn-secondary member-tab-btn tab-min-w-120" data-tab="saludMovilidadTab">Salud/Movilidad</button>
             </div>
             <form id="editForm">
 
                 <input type="hidden" id="editMemberId">
                 <!-- Tab Content Areas -->
-                <div id="datosTab" class="tab-content-area" style="display: block;">
+                <div id="datosTab" class="tab-content-area" data-visible="true">
                     <div class="form-grid">
                         <div class="form-group">
                             <label class="form-label">Nombre Completo</label>
@@ -418,8 +466,16 @@
                             <label class="form-label">Peso (kg)</label>
                             <input type="number" class="form-input" id="editWeight" step="0.1" required>
                         </div>
+                        <div class="form-group">
+                            <label class="form-label">Tipo de Plan</label>
+                            <select class="form-input" id="editPlanType">
+                                <option value="in_person">Presencial</option>
+                                <option value="virtual">Virtual</option>
+                                <option value="gladiadores">Gladiadores</option>
+                            </select>
+                        </div>
                     </div>
-                    <h4 style="margin: 24px 0 16px 0; color: #ffffff;">Medidas Corporales (cm)</h4>
+                    <h4 class="section-title">Medidas Corporales (cm)</h4>
                     <div class="form-grid">
                         <div class="form-group">
                             <label class="form-label">Abdomen</label>
@@ -446,7 +502,7 @@
                             <input type="number" class="form-input" id="editEspalda" step="0.1">
                         </div>
                     </div>
-                    <h4 style="margin: 24px 0 16px 0; color: #ffffff;">Medidas de Ropa</h4>
+                    <h4 class="section-title">Medidas de Ropa</h4>
                     <div class="form-grid">
                         <div class="form-group">
                             <label class="form-label">Pantalón</label>
@@ -457,26 +513,26 @@
                             <input type="text" class="form-input" id="editCamisa">
                         </div>
                     </div>
-                    <h4 style="margin: 24px 0 16px 0; color: #ffffff;">Imágenes</h4>
+                    <h4 class="section-title">Imágenes</h4>
                     <div class="form-grid">
                         <div class="form-group">
                             <label class="form-label">Imagen Antes</label>
                             <input type="file" class="form-input" id="editBeforeImg" accept="image/*">
-                            <img id="editBeforePreview" src="" alt="Vista previa antes" style="max-width:100px;display:none;margin-top:8px;" />
+                            <img id="editBeforePreview" src="" alt="Vista previa antes" class="img-preview small" />
                         </div>
                         <div class="form-group">
                             <label class="form-label">Imagen Después</label>
                             <input type="file" class="form-input" id="editAfterImg" accept="image/*">
-                            <img id="editAfterPreview" src="" alt="Vista previa después" style="max-width:100px;display:none;margin-top:8px;" />
+                            <img id="editAfterPreview" src="" alt="Vista previa después" class="img-preview small" />
                         </div>
                     </div>
                 </div>
 
-                <div id="factoresSaludTab" class="tab-content-area" style="display: none;">
-                    <h4 style="margin: 16px 0; color: #ffd600;">Factores de Salud</h4>
+                <div id="factoresSaludTab" class="tab-content-area" data-visible="false">
+                    <h4 class="section-title-yellow">Factores de Salud</h4>
                     <div class="form-group">
                         <label class="form-label">Selecciona los factores que aplican:</label>
-                        <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 8px;">
+                        <div class="checkbox-column mt-12">
                             <label><input type="checkbox" id="faltaEnergia"> Falta de energía</label>
                             <label><input type="checkbox" id="excesoEstres"> Exceso de estrés</label>
                             <label><input type="checkbox" id="descontrolHormonal"> Descontrol hormonal</label>
@@ -501,11 +557,11 @@
                         </select>
                     </div>
                 </div>
-                <div id="saludMovilidadTab" class="tab-content-area" style="display: none;">
-                    <h4 style="margin: 16px 0; color: #ffd600;">Salud/Movilidad</h4>
+                <div id="saludMovilidadTab" class="tab-content-area" data-visible="false">
+                    <h4 class="section-title-yellow">Salud/Movilidad</h4>
                     <div class="form-group">
                         <label class="form-label">Selecciona los factores que aplican:</label>
-                        <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 8px;">
+                        <div class="checkbox-column mt-12">
                             <label><input type="checkbox" id="trigliceridos"> Triglicéridos</label>
                             <label><input type="checkbox" id="colesterol"> Colesterol</label>
                             <label><input type="checkbox" id="diabetes"> Diabetes</label>
@@ -539,8 +595,8 @@
 
                 <div class="btn-group">
                     <button type="button" class="btn btn-danger" id="deleteMember">Eliminar Miembro</button>
-                    <button type="button" class="btn btn-secondary edit-only" id="cancelEdit" style="display:none;">Cancelar</button>
-                    <button type="submit" class="btn btn-primary edit-only" style="display:none;">Guardar Cambios</button>
+                    <button type="button" class="btn btn-secondary edit-only" id="cancelEdit">Cancelar</button>
+                    <button type="submit" class="btn btn-primary edit-only">Guardar Cambios</button>
                 </div>
                 <div id="editError" class="error-message"></div>
                 <div id="editSuccess" class="success-message"></div>
@@ -555,12 +611,12 @@
                 <h2 class="modal-title">Escanear Código QR del Miembro</h2>
                 <button class="close-btn" id="closeScannerModal">&times;</button>
             </div>
-            <div id="qr-reader" style="width: 100%; max-width: 400px; margin: 0 auto;"></div>
-            <div style="margin: 16px 0; text-align: center;">
-                <input id="manualIdInput" type="text" placeholder="Ingresar ID de miembro" style="padding:8px; border-radius:6px; border:1px solid #ccc; width: 220px;">
-                <button id="manualIdBtn" class="btn btn-primary btn-sm" style="margin-left:8px;">Agregar Asistencia</button>
+            <div id="qr-reader" class="qr-reader-wrap"></div>
+            <div class="center-block">
+                <input id="manualIdInput" type="text" placeholder="Ingresar ID de miembro" class="purchase-input">
+                <button id="manualIdBtn" class="btn btn-primary btn-sm ml-8">Agregar Asistencia</button>
             </div>
-            <div id="scanResult" class="success-message" style="text-align: center; margin-top: 16px;"></div>
+            <div id="scanResult" class="success-message center-mt-16"></div>
         </div>
     </div>
 
@@ -574,6 +630,10 @@
             <form id="measurementForm">
                 <input type="hidden" id="measurementMemberId">
                 <div class="form-grid">
+                    <div class="form-group">
+                        <label class="form-label">Fecha</label>
+                        <input type="date" class="form-input" id="measurementDate">
+                    </div>
                     <div class="form-group">
                         <label class="form-label">Peso (kg)</label>
                         <input type="number" class="form-input" id="measurementWeight" step="0.1" required>
@@ -612,6 +672,207 @@
             </form>
         </div>
     </div>
-    <script src="main.js"></script>
+    <!-- Add Exercise Modal -->
+    <div id="addExerciseModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title">Agregar Ejercicio</h2>
+                <button class="close-btn" id="closeAddExerciseModal">&times;</button>
+            </div>
+            <form id="addExerciseForm">
+                <div class="form-group">
+                    <label class="form-label">Título</label>
+                    <input type="text" class="form-input" id="exerciseTitle" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Descripción</label>
+                    <textarea class="form-input" id="exerciseDescription" rows="4"></textarea>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">URL de Video (opcional)</label>
+                    <input type="url" class="form-input" id="exerciseVideo">
+                </div>
+                <div class="btn-group">
+                    <button type="button" class="btn btn-secondary" id="cancelAddExercise">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Guardar Ejercicio</button>
+                </div>
+                <div id="exerciseError" class="error-message"></div>
+                <div id="exerciseSuccess" class="success-message"></div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Assign Exercise Modal -->
+    <div id="assignExerciseModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title">Asignar Ejercicio a Miembro</h2>
+                <button class="close-btn" id="closeAssignExerciseModal">&times;</button>
+            </div>
+            <div class="mt-12">
+                <label class="form-label">Seleccionar Ejercicio</label>
+                <select id="assignExerciseSelect" class="form-input"></select>
+            </div>
+            <div class="mt-12">
+                <label class="form-label">Seleccionar Miembro</label>
+                <select id="assignMemberSelect" class="form-input"></select>
+            </div>
+            <div class="flex-gap">
+                <div class="flex-1">
+                    <label class="form-label">Series (sets)</label>
+                    <input id="assignSetsInput" class="form-input" type="number" min="1" value="3">
+                </div>
+                <div class="flex-1">
+                    <label class="form-label">Repeticiones (reps)</label>
+                    <input id="assignRepsInput" class="form-input" type="number" min="1" value="10">
+                </div>
+            </div>
+            <div class="btn-group">
+                <button type="button" class="btn btn-secondary" id="cancelAssignExercise">Cancelar</button>
+                <button type="button" class="btn btn-primary" id="confirmAssignExercise">Asignar</button>
+            </div>
+            <div id="assignError" class="error-message"></div>
+            <div id="assignSuccess" class="success-message"></div>
+        </div>
+    </div>
+
+        <!-- Edit Exercise Modal -->
+        <div id="editExerciseModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 class="modal-title">Editar Ejercicio</h2>
+                    <button class="close-btn" id="closeEditExerciseModal">&times;</button>
+                </div>
+                <form id="editExerciseForm">
+                    <input type="hidden" id="editExerciseId">
+                    <div class="form-group">
+                        <label class="form-label">Título</label>
+                        <input type="text" class="form-input" id="editExerciseTitle" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Descripción</label>
+                        <textarea class="form-input" id="editExerciseDescription" rows="4"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">URL de Video (opcional)</label>
+                        <input type="url" class="form-input" id="editExerciseVideo">
+                    </div>
+                    <div id="editExercisePreview" class="center-mt-16"></div>
+                    <div class="btn-group">
+                        <button type="button" class="btn btn-secondary" id="cancelEditExercise">Cancelar</button>
+                        <button id="editExerciseSaveBtn" type="submit" class="btn btn-primary">Guardar Cambios</button>
+                    </div>
+                    <div id="editExerciseError" class="error-message"></div>
+                    <div id="editExerciseSuccess" class="success-message"></div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Unassign Exercise Modal -->
+        <div id="unassignExerciseModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 class="modal-title">Desasignar Ejercicio</h2>
+                    <button class="close-btn" id="closeUnassignExerciseModal">&times;</button>
+                </div>
+                <div class="mt-12">
+                    <input type="hidden" id="unassignExerciseId">
+                    <p id="unassignExerciseInfo" class="muted mb-12"></p>
+                    <label class="form-label">Selecciona miembro (o deja vacío para desasignar a todos)</label>
+                    <select id="unassignMemberSelect" class="form-input">
+                        <option value="">-- Desasignar a todos --</option>
+                    </select>
+                </div>
+                <div class="btn-group">
+                    <button type="button" class="btn btn-secondary" id="cancelUnassignExercise">Cancelar</button>
+                    <button type="button" class="btn btn-primary" id="confirmUnassignExercise">Desasignar</button>
+                </div>
+                <div id="unassignExerciseError" class="error-message"></div>
+                <div id="unassignExerciseSuccess" class="success-message"></div>
+            </div>
+            </div>
+        <!-- Edit Assignment Modal -->
+        <div id="editAssignmentModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 class="modal-title">Editar Asignación</h2>
+                    <button class="close-btn" id="closeEditAssignmentModal">&times;</button>
+                </div>
+                <div class="mt-12">
+                    <input type="hidden" id="editAssignExerciseId">
+                    <label class="form-label">Miembro</label>
+                    <select id="editAssignMemberSelect" class="form-input"></select>
+                </div>
+                <div class="flex-gap">
+                    <div class="flex-1"><label class="form-label">Series (sets)</label><input id="editAssignSets" class="form-input" type="number" min="1" value="3"></div>
+                    <div class="flex-1"><label class="form-label">Repeticiones (reps)</label><input id="editAssignReps" class="form-input" type="number" min="1" value="10"></div>
+                </div>
+                <div class="btn-group">
+                    <button type="button" class="btn btn-secondary" id="cancelEditAssignment">Cancelar</button>
+                    <button type="button" class="btn btn-primary" id="saveEditAssignment">Guardar</button>
+                </div>
+                <div id="editAssignError" class="error-message"></div>
+                <div id="editAssignSuccess" class="success-message"></div>
+            </div>
+        </div>
+        <!-- Generic Confirm Modal -->
+        <div id="confirmModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 class="modal-title" id="confirmModalTitle">Confirmar</h2>
+                    <button class="close-btn" id="closeConfirmModal">&times;</button>
+                </div>
+                <div id="confirmModalBody" class="modal-body"></div>
+                <div class="btn-group">
+                    <button type="button" class="btn btn-secondary" id="cancelConfirm">Cancelar</button>
+                    <button type="button" class="btn btn-danger" id="confirmModalOk">Confirmar</button>
+                </div>
+            </div>
+        </div>
+    <script>
+        // Defensive stubs: if the app hasn't loaded the helpers yet (cached/stale files),
+        // provide safe fallbacks so inline handlers or older code won't throw ReferenceError.
+        try {
+            if (typeof window !== 'undefined') {
+                if (typeof window.confirmPrompt !== 'function') {
+                    window.confirmPrompt = function(message, callback) {
+                        try { const ok = window.confirm(message); callback(!!ok); } catch (e) { console.error(e); }
+                    };
+                }
+                if (typeof window.showConfirm !== 'function') {
+                    window.showConfirm = function(message, callback) {
+                        try { const ok = window.confirm(message); callback(!!ok); } catch (e) { console.error(e); }
+                    };
+                }
+                // showToast stub: app may call showToast from inline handlers before main.js loads
+                if (typeof window.showToast !== 'function') {
+                    window.showToast = function(message, opts) {
+                        try {
+                            const container = document.getElementById('toastContainer');
+                            if (!container) { console.log('TOAST:', message); return; }
+                            const div = document.createElement('div');
+                            div.className = 'toast';
+                            if (opts && opts.background) div.style.background = opts.background;
+                            if (opts && opts.color) div.style.color = opts.color;
+                            div.textContent = message;
+                            container.appendChild(div);
+                            setTimeout(() => { try { div.remove(); } catch(e){} }, (opts && opts.duration) || 2500);
+                        } catch (e) { try { console.log('TOAST:', message); } catch(_){} }
+                    };
+                }
+            }
+        } catch (e) { console.error('Error installing confirm stubs', e); }
+    </script>
+    <!-- Firebase SDKs (loaded only if you provide FIREBASE_CONFIG in window) -->
+    <script>
+        // Optional: set window.FIREBASE_CONFIG = { apiKey: '...', authDomain: '...', projectId: '...', ... } in the console
+        // before main.js loads, or replace below with your config inline.
+    </script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+    <script src="main.js?v=20251021T0100"></script>
+        <!-- Toast container -->
+    <div id="toastContainer" class="toast-container"></div>
 </body>
 </html>
