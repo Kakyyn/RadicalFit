@@ -23,230 +23,6 @@ try {
         }
     }
 } catch (e) { /* ignore */ }
-
-// -----------------------------
-// Firebase (Firestore) wiring
-// -----------------------------
-// This block will initialize Firebase only if `window.FIREBASE_CONFIG` is present.
-// To enable, set the config object in index.html (or in the browser console) before main.js loads:
-// window.FIREBASE_CONFIG = { apiKey: '...', authDomain: '...', projectId: '...', measurementId: '...', appId: '...', messagingSenderId: '...' };
-try {
-    if (typeof window !== 'undefined' && window.FIREBASE_CONFIG) {
-        try {
-            // Initialize Firebase compat SDK (we loaded compat scripts in index.html)
-            firebase.initializeApp(window.FIREBASE_CONFIG);
-            const firebaseAuth = firebase.auth();
-            const firestore = firebase.firestore();
-
-            // Enable offline persistence for Firestore (browser cache)
-            try { firestore.enablePersistence({ synchronizeTabs: true }); } catch (e) { console.warn('Firestore persistence not enabled:', e); }
-
-            // Expose for other modules
-            window._radical_firebase = { auth: firebaseAuth, db: firestore };
-
-            // Simple auth helper: signInWithEmailPassword
-            async function fbSignIn(email, password) {
-                return firebaseAuth.signInWithEmailAndPassword(email, password);
-            }
-            async function fbSignOut() { return firebaseAuth.signOut(); }
-            window.fbSignIn = fbSignIn; window.fbSignOut = fbSignOut;
-
-            // Real-time listeners setup helper (example: listen to members collection)
-            function listenMembers(onChange) {
-                return firestore.collection('members').onSnapshot(snap => {
-                    const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-                    try { onChange(docs); } catch (e) { console.error(e); }
-                });
-            }
-            window.listenMembers = listenMembers;
-
-            // Realtime listeners and CRUD helpers
-            let _membersUnsub = null;
-            let _exercisesUnsub = null;
-
-            function setSyncStatus(text) {
-                try { const el = document.getElementById('syncStatus'); if (el) el.textContent = text; } catch(e){}
-            }
-
-            let lastSync = null;
-
-            async function handleOnline() {
-                setSyncStatus('Sync: connected (flushing)');
-                try { await flushPendingWrites(); lastSync = new Date().toISOString(); setSyncStatus('Sync: connected (last: ' + new Date(lastSync).toLocaleString() + ')'); } catch(e) { console.warn(e); setSyncStatus('Sync: connected'); }
-            }
-            window.addEventListener('online', handleOnline);
-            // attempt flush immediately if already online
-            if (navigator.onLine) handleOnline();
-
-            function startRealtimeSync() {
-                try {
-                    // Members
-                    _membersUnsub = firestore.collection('members').onSnapshot(snap => {
-                        const serverDocs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-                        try {
-                            // Merge with local members using last-write-wins by updatedAt timestamp
-                            const localMap = new Map((members || []).map(m => [m.id, m]));
-                            const merged = [];
-                            for (const s of serverDocs) {
-                                const local = localMap.get(s.id);
-                                const serverTs = parseTs(s.updatedAt || s.registrationDate || s.createdAt);
-                                const localTs = parseTs(local && local.updatedAt);
-                                if (local && localTs > serverTs) {
-                                    // Local is newer: keep local and queue it to upload
-                                    merged.push(local);
-                                    try { queueWrite({ collection: 'members', type: 'set', docId: local.id, doc: local }); } catch(e){}
-                                } else {
-                                    // Server is newer or no local: take server
-                                    merged.push(s);
-                                }
-                                if (local) localMap.delete(s.id);
-                            }
-                            // Any remaining local-only members should be uploaded (likely created offline)
-                            for (const leftover of localMap.values()) {
-                                merged.push(leftover);
-                                try { queueWrite({ collection: 'members', type: 'set', docId: leftover.id, doc: leftover }); } catch(e){}
-                            }
-                            members = merged;
-                            try { saveData('gymMembers', members); } catch(e){}
-                            try { renderMembersTable(); updateAdminStats(); } catch(e){}
-                        } catch (e) { console.error(e); }
-                        lastSync = new Date().toISOString();
-                        setSyncStatus('Sync: connected (last: ' + new Date(lastSync).toLocaleString() + ')');
-                    }, err => { console.warn('members snapshot error', err); setSyncStatus('Sync: error'); });
-
-                    // Exercises
-                    _exercisesUnsub = firestore.collection('exercises').onSnapshot(snap => {
-                        const serverDocs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-                        try {
-                            const localMap = new Map((exercises || []).map(x => [x.id, x]));
-                            const merged = [];
-                            for (const s of serverDocs) {
-                                const local = localMap.get(s.id);
-                                const serverTs = parseTs(s.updatedAt || s.createdAt);
-                                const localTs = parseTs(local && local.updatedAt);
-                                if (local && localTs > serverTs) {
-                                    merged.push(local);
-                                    try { queueWrite({ collection: 'exercises', type: 'set', docId: local.id, doc: local }); } catch(e){}
-                                } else {
-                                    merged.push(s);
-                                }
-                                if (local) localMap.delete(s.id);
-                            }
-                            for (const leftover of localMap.values()) {
-                                merged.push(leftover);
-                                try { queueWrite({ collection: 'exercises', type: 'set', docId: leftover.id, doc: leftover }); } catch(e){}
-                            }
-                            exercises = merged;
-                            saveData('exercises', exercises);
-                            try { renderExercisesList(); } catch(e){}
-                        } catch(e) { console.error(e); }
-                    }, err => { console.warn('exercises snapshot error', err); });
-                } catch (e) { console.error('startRealtimeSync error', e); }
-            }
-
-            function stopRealtimeSync() {
-                try { if (_membersUnsub) _membersUnsub(); if (_exercisesUnsub) _exercisesUnsub(); } catch(e){}
-                setSyncStatus('Sync: local');
-            }
-
-            // CRUD helpers
-            async function createMember(member) {
-                try {
-                    member.updatedAt = new Date().toISOString();
-                    if (member.id) {
-                        await firestore.collection('members').doc(member.id).set(member, { merge: true });
-                    } else {
-                        const d = await firestore.collection('members').add(member);
-                        member.id = d.id;
-                    }
-                } catch (e) { console.warn('createMember firestore failed', e); }
-                // Ensure local copy
-                members.push(member);
-                saveData('gymMembers', members);
-                try { renderMembersTable(); updateAdminStats(); } catch(e){}
-                return member;
-            }
-
-            async function updateMember(memberId, patch) {
-                try {
-                    const idx = members.findIndex(m => m.id === memberId);
-                    if (idx !== -1) {
-                        members[idx] = Object.assign({}, members[idx], patch, { updatedAt: new Date().toISOString() });
-                    }
-                    if (firestore) {
-                        try { await firestore.collection('members').doc(memberId).set(members[idx], { merge: true }); }
-                        catch(e) { console.warn('updateMember queued due to error', e); queueWrite({ collection: 'members', type: 'set', docId: memberId, doc: members[idx] }); }
-                    }
-                    saveData('gymMembers', members);
-                    try { renderMembersTable(); updateAdminStats(); } catch(e){}
-                    return members[idx];
-                } catch (e) { console.error('updateMember error', e); return null; }
-            }
-
-            async function deleteMember(memberId) {
-                try { if (firestore) { try { await firestore.collection('members').doc(memberId).delete(); } catch(e) { console.warn('deleteMember queued due to error', e); queueWrite({ collection: 'members', type: 'delete', docId: memberId }); } } } catch(e) { console.warn(e); }
-                members = members.filter(m => m.id !== memberId);
-                saveData('gymMembers', members);
-                try { renderMembersTable(); updateAdminStats(); } catch(e){}
-            }
-
-            async function createExercise(ex) {
-                try {
-                    ex.updatedAt = new Date().toISOString();
-                    if (ex.id) await firestore.collection('exercises').doc(ex.id).set(ex, { merge: true });
-                    else {
-                        const d = await firestore.collection('exercises').add(ex);
-                        ex.id = d.id;
-                    }
-                } catch(e) { console.warn('createExercise firestore failed', e); }
-                exercises.push(ex);
-                saveData('exercises', exercises);
-                try { renderExercisesList(); } catch(e){}
-                return ex;
-            }
-
-            async function updateExercise(exId, patch) {
-                try {
-                    const idx = exercises.findIndex(x => x.id === exId);
-                    if (idx !== -1) exercises[idx] = Object.assign({}, exercises[idx], patch, { updatedAt: new Date().toISOString() });
-                    if (firestore) {
-                        try { await firestore.collection('exercises').doc(exId).set(exercises[idx], { merge: true }); }
-                        catch(e) { console.warn('updateExercise queued due to error', e); queueWrite({ collection: 'exercises', type: 'set', docId: exId, doc: exercises[idx] }); }
-                    }
-                    saveData('exercises', exercises);
-                    try { renderExercisesList(); } catch(e){}
-                    return exercises[idx];
-                } catch(e) { console.error(e); return null; }
-            }
-
-            async function deleteExercise(exId) {
-                try { if (firestore) { try { await firestore.collection('exercises').doc(exId).delete(); } catch(e) { console.warn('deleteExercise queued due to error', e); queueWrite({ collection: 'exercises', type: 'delete', docId: exId }); } } } catch(e) { console.warn(e); }
-                exercises = exercises.filter(x => x.id !== exId);
-                saveData('exercises', exercises);
-                try { renderExercisesList(); } catch(e){}
-            }
-
-            // Expose helpers globally
-            window.startRealtimeSync = startRealtimeSync;
-            window.stopRealtimeSync = stopRealtimeSync;
-            window.createMember = createMember; window.updateMember = updateMember; window.deleteMember = deleteMember;
-            window.createExercise = createExercise; window.updateExercise = updateExercise; window.deleteExercise = deleteExercise;
-
-            // Start realtime sync automatically once Firebase is initialized
-            startRealtimeSync();
-
-            // Update sync status based on navigator
-            try {
-                function updateOnlineStatus() { try { const el = document.getElementById('syncStatus'); if (el) el.textContent = navigator.onLine ? 'Sync: connected' : 'Sync: offline'; } catch(e){} }
-                window.addEventListener('online', updateOnlineStatus);
-                window.addEventListener('offline', updateOnlineStatus);
-                updateOnlineStatus();
-            } catch (e) { /* ignore */ }
-
-            console.log('Firebase initialized (radical PWA)');
-        } catch (e) { console.error('Firebase init error', e); }
-    }
-} catch (e) { /* ignore */ }
 // Ensure global identifier names exist (some environments / inline handlers call the identifier directly)
 try {
     if (typeof openModal === 'undefined') {
@@ -263,134 +39,6 @@ try {
         var closeModalById = (window && window.closeModalById) ? window.closeModalById : function(id) { try { const m = document.getElementById(id); if (m) m.classList.remove('show'); } catch(e){} };
     }
 } catch(e) { /* ignore */ }
-
-// -----------------------------
-// Persistence abstraction
-// -----------------------------
-// Provides saveData(key, value) and loadData(key) helpers that use Firestore when
-// window._radical_firebase.db is available, otherwise fallback to localStorage.
-const PERSIST_KEYS = {
-    members: 'gymMembers',
-    exercises: 'exercises',
-    purchases: 'comprasList',
-    currentUser: 'currentUser'
-};
-
-async function saveData(key, value) {
-    try {
-        // If Firestore initialized and it's a top-level collection we know, use it
-        if (window._radical_firebase && window._radical_firebase.db) {
-            const db = window._radical_firebase.db;
-            if (key === PERSIST_KEYS.members && Array.isArray(value)) {
-                // Batch write members with doc id = member.id when present
-                const batch = db.batch();
-                for (const m of value) {
-                    if (m && m.id) {
-                        const ref = db.collection('members').doc(m.id);
-                        batch.set(ref, m, { merge: true });
-                    } else {
-                        // fallback: add as new doc
-                        db.collection('members').add(m).catch(()=>{});
-                    }
-                }
-                // Commit batch
-                try { await batch.commit(); } catch(e) { console.warn('batch commit failed', e); }
-                // Also persist locally for offline fallback
-                try { localStorage.setItem(key, JSON.stringify(value)); } catch(e){}
-                return true;
-            }
-            if (key === PERSIST_KEYS.exercises && Array.isArray(value)) {
-                const batch = db.batch();
-                for (const ex of value) {
-                    if (ex && ex.id) batch.set(db.collection('exercises').doc(ex.id), ex, { merge: true });
-                    else db.collection('exercises').add(ex).catch(()=>{});
-                }
-                try { await batch.commit(); } catch(e) { console.warn('batch commit failed', e); }
-                try { localStorage.setItem(key, JSON.stringify(value)); } catch(e){}
-                return true;
-            }
-            if (key === PERSIST_KEYS.purchases && Array.isArray(value)) {
-                try { localStorage.setItem(key, JSON.stringify(value)); } catch(e){}
-                // don't bulk-write purchases automatically (avoid duplicates) — keep local, migration exists
-                return true;
-            }
-            if (key === PERSIST_KEYS.currentUser) {
-                try { localStorage.setItem(key, JSON.stringify(value)); } catch(e){}
-                return true;
-            }
-        }
-    } catch (e) { console.error('saveData error', e); }
-    // Fallback: localStorage
-    try { localStorage.setItem(key, JSON.stringify(value)); return true; } catch (e) { console.error(e); return false; }
-}
-
-function loadData(key) {
-    try {
-        const raw = localStorage.getItem(key);
-        if (!raw) return null;
-        return JSON.parse(raw);
-    } catch (e) { return null; }
-}
-
-// -----------------------------
-// Pending writes queue (offline resilience)
-// -----------------------------
-const PENDING_KEY = 'pendingWrites';
-
-function loadPendingWrites() {
-    try { return JSON.parse(localStorage.getItem(PENDING_KEY) || '[]'); } catch (e) { return []; }
-}
-
-function savePendingWrites(queue) {
-    try { localStorage.setItem(PENDING_KEY, JSON.stringify(queue)); } catch (e) { console.error(e); }
-}
-
-function queueWrite(op) {
-    const q = loadPendingWrites();
-    q.push(Object.assign({ queuedAt: new Date().toISOString() }, op));
-    savePendingWrites(q);
-}
-
-function clearPendingWrites() { savePendingWrites([]); }
-
-async function flushPendingWrites() {
-    if (!window._radical_firebase || !window._radical_firebase.db) return;
-    const db = window._radical_firebase.db;
-    const queue = loadPendingWrites();
-    if (!queue.length) return;
-    const remaining = [];
-    for (const op of queue) {
-        try {
-            if (op.collection === 'members') {
-                if (op.type === 'set') {
-                    if (op.docId) await db.collection('members').doc(op.docId).set(op.doc, { merge: true });
-                    else await db.collection('members').add(op.doc);
-                } else if (op.type === 'delete' && op.docId) {
-                    await db.collection('members').doc(op.docId).delete();
-                }
-            } else if (op.collection === 'exercises') {
-                if (op.type === 'set') {
-                    if (op.docId) await db.collection('exercises').doc(op.docId).set(op.doc, { merge: true });
-                    else await db.collection('exercises').add(op.doc);
-                } else if (op.type === 'delete' && op.docId) {
-                    await db.collection('exercises').doc(op.docId).delete();
-                }
-            } else if (op.collection === 'measurements') {
-                if (op.type === 'add') {
-                    await db.collection('measurements').add(op.doc);
-                }
-            } else if (op.collection === 'purchases') {
-                if (op.type === 'add') await db.collection('purchases').add(op.doc);
-            }
-        } catch (e) {
-            console.warn('flushPendingWrites op failed, keeping queued', op, e);
-            remaining.push(op);
-        }
-    }
-    savePendingWrites(remaining);
-}
-
-function parseTs(s) { try { return s ? new Date(s).getTime() : 0; } catch(e) { return 0; } }
 
 function attachSignOutListener() {
     const btn = document.getElementById('signOutBtn');
@@ -457,8 +105,8 @@ function setupNavigation(items) {
         let qrScanner = null;
         
         // Admin credentials
-        const ADMIN_EMAIL = 'mau2794@gmail.com';
-        const ADMIN_PASSWORD = 'Admins';
+        const ADMIN_EMAIL = 'admin@radicalfit.com';
+        const ADMIN_PASSWORD = 'admin';
 
         // =====================
         // DOM ELEMENTS
@@ -527,7 +175,7 @@ function setupNavigation(items) {
                 if (member) {
                     if (!member.attendance) member.attendance = [];
                     member.attendance.push(new Date().toISOString());
-                    saveData('gymMembers', members);
+                    localStorage.setItem('gymMembers', JSON.stringify(members));
                     renderMembersTable();
                     updateAdminStats();
                     document.getElementById('scanResult').textContent = `✅ Asistencia agregada para ${member.name}`;
@@ -582,7 +230,7 @@ function setupNavigation(items) {
                 if (!Array.isArray(member.measurementHistory)) member.measurementHistory = [];
                 member.measurementHistory.push(entry);
                 // Save to localStorage
-                saveData('gymMembers', members);
+                localStorage.setItem('gymMembers', JSON.stringify(members));
                 document.getElementById('measurementSuccess').textContent = 'Medición guardada exitosamente.';
             setTimeout(() => {
                 closeModal(measurementModal);
@@ -675,118 +323,6 @@ function setupNavigation(items) {
                 showLandingPage();
             }
 
-            // -------- Migration button wiring (localStorage -> Firestore) --------
-            const migrateBtn = document.getElementById('migrateBtn');
-            const migrationStatus = document.getElementById('migrationStatus');
-            if (migrateBtn) {
-                migrateBtn.addEventListener('click', async function() {
-                    // Ask for confirmation (prefer modal-based confirm if available)
-                    const confirmFn = (window.confirmPrompt && typeof window.confirmPrompt === 'function') ? window.confirmPrompt : function(msg, cb){ const ok = window.confirm(msg); cb(ok); };
-                    confirmFn('Esto subirá los datos locales a Firestore. Asegúrate de que Firestore esté configurado. ¿Deseas continuar?', async function(ok) {
-                        if (!ok) return;
-                        migrationStatus.textContent = 'Iniciando migración...';
-                        try {
-                            console.log('Migration requested; checking firebase...');
-                            // Log localStorage counts to help debugging
-                            try {
-                                console.log('localStorage gymMembers length:', (localStorage.getItem('gymMembers') || '').length);
-                                console.log('localStorage exercises length:', (localStorage.getItem('exercises') || '').length);
-                                console.log('localStorage comprasList length:', (localStorage.getItem('comprasList') || '').length);
-                            } catch (e) { console.warn('localStorage read error', e); }
-
-                            // If window._radical_firebase is missing, attempt a best-effort initialization using compat SDK if available
-                            if ((!window._radical_firebase || !window._radical_firebase.db) && typeof window !== 'undefined' && window.firebase && window.FIREBASE_CONFIG) {
-                                try {
-                                    if (!firebase.apps || !firebase.apps.length) firebase.initializeApp(window.FIREBASE_CONFIG);
-                                    const fbAuth = firebase.auth();
-                                    const fbDb = firebase.firestore();
-                                    window._radical_firebase = { auth: fbAuth, db: fbDb };
-                                    console.log('Fallback Firebase initialization succeeded');
-                                } catch (e) {
-                                    console.error('Fallback firebase init failed', e);
-                                }
-                            }
-
-                            // If we have an auth object but no signed-in user, try anonymous sign-in
-                            try {
-                                if (window._radical_firebase && window._radical_firebase.auth && !window._radical_firebase.auth.currentUser) {
-                                    console.log('No user signed in; attempting anonymous sign-in for migration...');
-                                    try {
-                                        await window._radical_firebase.auth.signInAnonymously();
-                                        console.log('Anonymous sign-in successful');
-                                    } catch (e) {
-                                        console.warn('Anonymous sign-in failed', e);
-                                    }
-                                }
-                            } catch (e) {
-                                console.warn('Auth check failed', e);
-                            }
-
-                            if (!window._radical_firebase || !window._radical_firebase.db) {
-                                migrationStatus.textContent = '';
-                                showToast('Firestore no está inicializado. Configura window.FIREBASE_CONFIG antes de migrar.', { type: 'error' });
-                                console.error('Migration aborted: window._radical_firebase is not available');
-                                return;
-                            }
-                            const db = window._radical_firebase.db;
-                            // Helper: upload a collection of plain objects, using id if present
-                            async function uploadCollection(key, collectionName) {
-                                const raw = localStorage.getItem(key);
-                                if (!raw) return { uploaded: 0, skipped: 0 };
-                                let items;
-                                try { items = JSON.parse(raw); } catch (e) { return { uploaded: 0, skipped: 0 }; }
-                                if (!Array.isArray(items)) return { uploaded: 0, skipped: 0 };
-                                let uploaded = 0, skipped = 0;
-                                for (const it of items) {
-                                    try {
-                                        const docId = (it && it.id) ? it.id : undefined;
-                                        if (docId) {
-                                            const docRef = db.collection(collectionName).doc(docId);
-                                            const snap = await docRef.get();
-                                            if (snap.exists) { skipped++; continue; }
-                                            await docRef.set(it);
-                                            uploaded++;
-                                        } else {
-                                            await db.collection(collectionName).add(it);
-                                            uploaded++;
-                                        }
-                                    } catch (e) { console.warn('upload error', e); }
-                                }
-                                return { uploaded, skipped };
-                            }
-
-                            const results = {};
-                            results.members = await uploadCollection('gymMembers', 'members');
-                            results.exercises = await uploadCollection('exercises', 'exercises');
-                            // measurements may be stored per-member; collect and upload as separate docs
-                            const rawMembers = JSON.parse(localStorage.getItem('gymMembers') || '[]');
-                            let measUploaded = 0;
-                            for (const m of rawMembers) {
-                                if (Array.isArray(m.measurementHistory) && m.measurementHistory.length) {
-                                    for (const entry of m.measurementHistory) {
-                                        try {
-                                            const doc = Object.assign({}, entry, { memberId: m.id });
-                                            await db.collection('measurements').add(doc);
-                                            measUploaded++;
-                                        } catch (e) { console.warn(e); }
-                                    }
-                                }
-                            }
-                            results.measurements = { uploaded: measUploaded, skipped: 0 };
-
-                            results.purchases = await uploadCollection('comprasList', 'purchases');
-
-                            migrationStatus.textContent = `Migración completada. Miembros: ${results.members.uploaded} (saltados ${results.members.skipped}), Ejercicios: ${results.exercises.uploaded}, Mediciones: ${results.measurements.uploaded}, Compras: ${results.purchases.uploaded}`;
-                            showToast('Migración finalizada.', { type: 'success' });
-                        } catch (e) {
-                            console.error('Migration error', e);
-                            migrationStatus.textContent = '';
-                            showToast('Error durante la migración. Revisa la consola.', { type: 'error' });
-                        }
-                    });
-                });
-            }
-
             // Landing page tab switching
             function attachPlanItemListeners() {
                 var planItems = document.querySelectorAll('.plan-item');
@@ -796,7 +332,6 @@ function setupNavigation(items) {
                         item.addEventListener('click', planItemHandler);
                     });
                 }
-
                 var closePlanModalBtn = document.getElementById('closePlanModal');
                 if (closePlanModalBtn) {
                     closePlanModalBtn.removeEventListener('click', closePlanModalHandler);
@@ -1017,7 +552,7 @@ function setupNavigation(items) {
             // Save saludMovilidad for this member
             members[memberIdx].saludMovilidad = getSaludMovilidadFromForm();
             // Save factoresSalud as well if needed (already implemented)
-            saveData('gymMembers', members);
+            localStorage.setItem('gymMembers', JSON.stringify(members));
         }
         // ...existing code...
     }, true); // Use capture to ensure this runs before default
@@ -1308,7 +843,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     const imported = JSON.parse(evt.target.result);
                     if (typeof imported !== 'object' || Array.isArray(imported)) throw new Error('Formato inválido');
                     for (const key in imported) {
-                        try { saveData(key, imported[key]); } catch(e) { localStorage.setItem(key, imported[key]); }
+                        localStorage.setItem(key, imported[key]);
                     }
                     document.getElementById('settingsMessage').textContent = 'Datos importados correctamente. Recargando...';
                     setTimeout(() => location.reload(), 1200);
@@ -1326,7 +861,7 @@ document.addEventListener('DOMContentLoaded', function() {
         let exercises = JSON.parse(localStorage.getItem('exercises') || '[]');
 
         function saveExercises() {
-            saveData('exercises', exercises);
+            localStorage.setItem('exercises', JSON.stringify(exercises));
         }
 
         function renderComprasList() {
@@ -1357,7 +892,7 @@ document.addEventListener('DOMContentLoaded', function() {
             } else {
                 comprasList.push({ id: member.id, name: member.name, count: 1 });
             }
-            saveData('comprasList', comprasList);
+            localStorage.setItem('comprasList', JSON.stringify(comprasList));
             renderComprasList();
         }
 
@@ -1863,7 +1398,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             });
             if (patched) {
-                saveData('gymMembers', members);
+                localStorage.setItem('gymMembers', JSON.stringify(members));
             }
             if (currentUser.isAdmin) {
                     showAdminDashboard();
@@ -1900,7 +1435,7 @@ document.addEventListener('DOMContentLoaded', function() {
             // Check admin login
             if (email === ADMIN_EMAIL && password === ADMIN_PASSWORD) {
                 currentUser = { email, isAdmin: true };
-                saveData('currentUser', currentUser);
+                localStorage.setItem('currentUser', JSON.stringify(currentUser));
                 showMainApp();
                 return;
             }
@@ -1909,7 +1444,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const member = members.find(m => m.email === email && m.password === password);
             if (member) {
                 currentUser = { email, isAdmin: false, memberId: member.id };
-                saveData('currentUser', currentUser);
+                localStorage.setItem('currentUser', JSON.stringify(currentUser));
                 showMainApp();
             } else {
                 errorElement.textContent = 'Correo o contraseña inválidos';
@@ -2119,36 +1654,21 @@ try { window.openModal = openModal; window.closeModal = closeModal; window.openM
                     seArrollaRopa: false
                 }
             };
-            // Persist new member (Firestore when enabled)
-            try {
-                if (typeof createMember === 'function') {
-                    createMember(member).then(() => {
-                        closeModal(registerModal);
-                        registerForm.reset();
-                        if (currentUser?.isAdmin) { try { renderMembersTable(); updateAdminStats(); } catch(e){} }
-                        showToast('¡Miembro registrado exitosamente!', { type: 'success' });
-                    }).catch(err => {
-                        console.error('createMember error', err);
-                        // fallback: add locally
-                        members.push(member); saveData('gymMembers', members);
-                        closeModal(registerModal); registerForm.reset();
-                        showToast('¡Miembro registrado localmente (Firestore error)!', { type: 'info' });
-                    });
-                } else {
-                    members.push(member);
-                    saveData('gymMembers', members);
-                    closeModal(registerModal);
-                    registerForm.reset();
-                    showToast('¡Miembro registrado exitosamente!', { type: 'success' });
-                }
-            } catch (e) {
-                console.error(e);
-                members.push(member);
-                saveData('gymMembers', members);
-                closeModal(registerModal);
-                registerForm.reset();
-                showToast('¡Miembro registrado exitosamente!', { type: 'success' });
+
+            members.push(member);
+            localStorage.setItem('gymMembers', JSON.stringify(members));
+            
+            closeModal(registerModal);
+            registerForm.reset();
+            
+            // If admin is registering, refresh the admin dashboard
+            if (currentUser?.isAdmin) {
+                renderMembersTable();
+                updateAdminStats();
             }
+            
+            // Success message
+            showToast('¡Miembro registrado exitosamente!', { background: '#10b981' });
         }
 
         // =====================
@@ -2165,7 +1685,7 @@ function deleteMember() {
         const idx = members.findIndex(m => m.id === memberId);
         if (idx === -1) return;
         members.splice(idx, 1);
-    saveData('gymMembers', members);
+        localStorage.setItem('gymMembers', JSON.stringify(members));
     // Close the edit modal
     const editModal = document.getElementById('editModal');
     if (editModal) closeModal(editModal);
@@ -2467,7 +1987,7 @@ function elegirGanador() {
         return;
     }
     const winner = pool[Math.floor(Math.random() * pool.length)];
-    try { saveData('comprasWinner', winner); } catch(e) { localStorage.setItem('comprasWinner', JSON.stringify(winner)); }
+    localStorage.setItem('comprasWinner', JSON.stringify(winner));
     renderComprasWinner();
     showToast(`¡Felicidades a ${winner.name} (ID: ${winner.id}) por ganar el sorteo de compras!`, { background: '#10b981', duration: 5000 });
 }
@@ -2517,7 +2037,7 @@ function handleEditMember(e) {
     // Salud/Movilidad
     members[memberIdx].saludMovilidad = getSaludMovilidadFromForm();
     // Save to localStorage
-    saveData('gymMembers', members);
+    localStorage.setItem('gymMembers', JSON.stringify(members));
     // If the edited member is currently logged in, re-render
     if (currentUser && !currentUser.isAdmin && currentUser.memberId === members[memberIdx].id) {
         renderMemberData(members[memberIdx]);
@@ -2611,7 +2131,7 @@ function handleQRScan(decodedText) {
         // Add attendance
         if (!member.attendance) member.attendance = [];
         member.attendance.push(new Date().toISOString());
-    saveData('gymMembers', members);
+        localStorage.setItem('gymMembers', JSON.stringify(members));
         if (scanResult) scanResult.textContent = `✅ Asistencia agregada para ${member.name}`;
         // If the current user is the scanned member, update their dashboard
         if (currentUser && currentUser.email === member.email && typeof renderMemberData === 'function') {
@@ -2813,7 +2333,7 @@ function deleteExercise(id) {
             m.assignedExercises = m.assignedExercises.filter(a => (typeof a === 'string' ? a !== id : a.id !== id));
         }
     });
-    saveData('gymMembers', members);
+    localStorage.setItem('gymMembers', JSON.stringify(members));
     saveExercises();
     renderExercisesList();
 }
@@ -2899,7 +2419,7 @@ document.getElementById('saveEditAssignment').addEventListener('click', function
         members[mIdx].assignedExercises[aIdx].sets = sets;
         members[mIdx].assignedExercises[aIdx].reps = reps;
     }
-    saveData('gymMembers', members);
+    localStorage.setItem('gymMembers', JSON.stringify(members));
     document.getElementById('editAssignSuccess').textContent = 'Asignación actualizada.';
     setTimeout(() => {
         const modal = document.getElementById('editAssignmentModal'); if (modal) closeModal(modal);
@@ -2920,7 +2440,7 @@ document.getElementById('confirmUnassignExercise').addEventListener('click', fun
         members.forEach(m => {
             if (Array.isArray(m.assignedExercises)) m.assignedExercises = m.assignedExercises.filter(a => (typeof a === 'string' ? a !== exId : a.id !== exId));
         });
-    saveData('gymMembers', members);
+        localStorage.setItem('gymMembers', JSON.stringify(members));
         document.getElementById('unassignExerciseSuccess').textContent = 'Desasignado de todos los miembros.';
     setTimeout(() => { const modal = document.getElementById('unassignExerciseModal'); if (modal) closeModal(modal); renderExercisesList(); }, 800);
         return;
@@ -2942,7 +2462,7 @@ function unassignExerciseFromMember(exId, memberId) {
     if (mIdx === -1) return false;
     if (!Array.isArray(members[mIdx].assignedExercises)) return false;
     members[mIdx].assignedExercises = members[mIdx].assignedExercises.filter(a => (typeof a === 'string' ? a !== exId : a.id !== exId));
-    saveData('gymMembers', members);
+    localStorage.setItem('gymMembers', JSON.stringify(members));
     return true;
 }
 
@@ -2976,7 +2496,7 @@ function assignExerciseToMember(exId, memberId, setsArg, repsArg) {
             already.reps = reps;
         }
     }
-    saveData('gymMembers', members);
+    localStorage.setItem('gymMembers', JSON.stringify(members));
     // If the assigned member is currently logged in, re-render their dashboard
     if (currentUser && !currentUser.isAdmin && currentUser.memberId === memberId && typeof renderMemberData === 'function') {
         const member = members.find(m => m.id === memberId);
