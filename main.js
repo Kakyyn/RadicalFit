@@ -686,9 +686,46 @@ function setupNavigation(items) {
                         if (!ok) return;
                         migrationStatus.textContent = 'Iniciando migración...';
                         try {
+                            console.log('Migration requested; checking firebase...');
+                            // Log localStorage counts to help debugging
+                            try {
+                                console.log('localStorage gymMembers length:', (localStorage.getItem('gymMembers') || '').length);
+                                console.log('localStorage exercises length:', (localStorage.getItem('exercises') || '').length);
+                                console.log('localStorage comprasList length:', (localStorage.getItem('comprasList') || '').length);
+                            } catch (e) { console.warn('localStorage read error', e); }
+
+                            // If window._radical_firebase is missing, attempt a best-effort initialization using compat SDK if available
+                            if ((!window._radical_firebase || !window._radical_firebase.db) && typeof window !== 'undefined' && window.firebase && window.FIREBASE_CONFIG) {
+                                try {
+                                    if (!firebase.apps || !firebase.apps.length) firebase.initializeApp(window.FIREBASE_CONFIG);
+                                    const fbAuth = firebase.auth();
+                                    const fbDb = firebase.firestore();
+                                    window._radical_firebase = { auth: fbAuth, db: fbDb };
+                                    console.log('Fallback Firebase initialization succeeded');
+                                } catch (e) {
+                                    console.error('Fallback firebase init failed', e);
+                                }
+                            }
+
+                            // If we have an auth object but no signed-in user, try anonymous sign-in
+                            try {
+                                if (window._radical_firebase && window._radical_firebase.auth && !window._radical_firebase.auth.currentUser) {
+                                    console.log('No user signed in; attempting anonymous sign-in for migration...');
+                                    try {
+                                        await window._radical_firebase.auth.signInAnonymously();
+                                        console.log('Anonymous sign-in successful');
+                                    } catch (e) {
+                                        console.warn('Anonymous sign-in failed', e);
+                                    }
+                                }
+                            } catch (e) {
+                                console.warn('Auth check failed', e);
+                            }
+
                             if (!window._radical_firebase || !window._radical_firebase.db) {
                                 migrationStatus.textContent = '';
                                 showToast('Firestore no está inicializado. Configura window.FIREBASE_CONFIG antes de migrar.', { type: 'error' });
+                                console.error('Migration aborted: window._radical_firebase is not available');
                                 return;
                             }
                             const db = window._radical_firebase.db;
@@ -759,6 +796,7 @@ function setupNavigation(items) {
                         item.addEventListener('click', planItemHandler);
                     });
                 }
+
                 var closePlanModalBtn = document.getElementById('closePlanModal');
                 if (closePlanModalBtn) {
                     closePlanModalBtn.removeEventListener('click', closePlanModalHandler);

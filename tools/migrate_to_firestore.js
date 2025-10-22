@@ -1,5 +1,5 @@
 // Node.js Admin migration template (run from a secure server with service account)
-// Usage: node migrate_to_firestore.js /path/to/local-export.json
+// Usage: set GOOGLE_APPLICATION_CREDENTIALS=path\\to\\serviceAccount.json; node migrate_to_firestore.js /path/to/local-export.json
 
 /*
   This script is a template. It expects a JSON file that contains keys:
@@ -17,7 +17,13 @@ async function main() {
   if (!file) { console.error('Usage: node migrate_to_firestore.js data.json'); process.exit(1); }
   const raw = fs.readFileSync(file, 'utf8');
   const data = JSON.parse(raw);
-  admin.initializeApp();
+  // Ensure GOOGLE_APPLICATION_CREDENTIALS is set to a service account JSON with Firestore permissions.
+  if (!process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+    console.warn('Warning: GOOGLE_APPLICATION_CREDENTIALS not set. Make sure you are running this in a secure environment with service account credentials.');
+  }
+  admin.initializeApp({
+    // If running on a machine with GOOGLE_APPLICATION_CREDENTIALS env var set, admin will use that.
+  });
   const db = admin.firestore();
 
   if (Array.isArray(data.gymMembers)) {
